@@ -332,47 +332,155 @@ module.exports = async function createConfigAsync() {
       [
         "docusaurus-plugin-llms",
         {
-          // Generate both llms.txt (index) and llms-full.txt (complete content)
+          // Generate index but disable the massive full file
           generateLLMsTxt: true,
-          generateLLMsFullTxt: true,
+          generateLLMsFullTxt: false,  // Turn off the 500k word file
           
           // Clean up content for better LLM consumption
           excludeImports: true,
           removeDuplicateHeadings: true,
-          
-          // Organize content in a logical order for LLMs
-          includeOrder: [
-            "quickstarts/**",
-            "evaluate/**", 
-            "develop/**",
-            "production-deployment/**",
-            "cli/**",
-            "references/**",
-            "troubleshooting/**",
-            "encyclopedia/**",
-            "security*",
-            "web-ui*",
-            "glossary*",
-          ],
           
           // Path transformation to clean URLs
           pathTransformation: {
             ignorePaths: ["docs"]
           },
           
-          // Custom LLM files for specific use cases
+          // Use case + language-specific files with correct docs/ prefix
           customLLMFiles: [
+            // === USE CASE FILES ===
             {
-              filename: "llms-quickstart.txt",
-              includePatterns: ["quickstarts/**", "develop/**/set-up-*"],
+              filename: "llms-getting-started.txt",
+              includePatterns: [
+                "docs/getting-started*",
+                "docs/quickstarts*", 
+                "docs/evaluate/understanding-temporal*",
+                "docs/evaluate/why-temporal*",
+                "docs/encyclopedia/temporal.mdx",
+                "docs/encyclopedia/temporal-sdks*"
+              ],
               fullContent: true,
-              title: "Temporal Quickstart Guide"
+              title: "Getting Started with Temporal"
             },
             {
-              filename: "llms-api-reference.txt", 
-              includePatterns: ["references/**", "cli/**"],
+              filename: "llms-core-concepts.txt", 
+              includePatterns: [
+                "docs/encyclopedia/**/*",
+                "docs/evaluate/development-production-features/**/*",
+                "docs/evaluate/use-cases-design-patterns*",
+                "docs/develop/safe-deployments*",
+                "docs/develop/worker-performance*"
+              ],
               fullContent: true,
-              title: "Temporal API and CLI Reference"
+              title: "Temporal Core Concepts and Features"
+            },
+            {
+              filename: "llms-production-operations.txt",
+              includePatterns: [
+                "docs/production-deployment/**/*",
+                "docs/cli/**/*", 
+                "docs/references/**/*",
+                "docs/troubleshooting/**/*",
+                "docs/security*",
+                "docs/web-ui*"
+              ],
+              fullContent: true,
+              title: "Temporal Production Deployment and Operations"
+            },
+            {
+              filename: "llms-cloud-guide.txt",
+              includePatterns: [
+                "docs/production-deployment/cloud/**/*",
+                "docs/evaluate/temporal-cloud/**/*",
+                "docs/cli/setup-cli*"
+              ],
+              fullContent: true,
+              title: "Temporal Cloud Complete Guide"
+            },
+            
+            // === LANGUAGE-SPECIFIC DEVELOPMENT FILES ===
+            {
+              filename: "llms-go-development.txt",
+              includePatterns: [
+                "docs/develop/go/**/*",
+                "docs/quickstarts*",
+                "docs/develop/environment-configuration*",
+                "docs/encyclopedia/temporal-sdks*",
+                "docs/evaluate/development-production-features/core-application*"
+              ],
+              fullContent: true,
+              title: "Temporal Go SDK Complete Development Guide"
+            },
+            {
+              filename: "llms-typescript-development.txt",
+              includePatterns: [
+                "docs/develop/typescript/**/*",
+                "docs/quickstarts*",
+                "docs/develop/environment-configuration*",
+                "docs/encyclopedia/temporal-sdks*",
+                "docs/evaluate/development-production-features/core-application*"
+              ],
+              fullContent: true,
+              title: "Temporal TypeScript SDK Complete Development Guide"
+            },
+            {
+              filename: "llms-python-development.txt",
+              includePatterns: [
+                "docs/develop/python/**/*",
+                "docs/quickstarts*",
+                "docs/develop/environment-configuration*",
+                "docs/encyclopedia/temporal-sdks*",
+                "docs/evaluate/development-production-features/core-application*"
+              ],
+              fullContent: true,
+              title: "Temporal Python SDK Complete Development Guide"
+            },
+            {
+              filename: "llms-java-development.txt",
+              includePatterns: [
+                "docs/develop/java/**/*",
+                "docs/quickstarts*",
+                "docs/develop/environment-configuration*",
+                "docs/encyclopedia/temporal-sdks*",
+                "docs/evaluate/development-production-features/core-application*"
+              ],
+              fullContent: true,
+              title: "Temporal Java SDK Complete Development Guide"
+            },
+            {
+              filename: "llms-dotnet-development.txt",
+              includePatterns: [
+                "docs/develop/dotnet/**/*",
+                "docs/quickstarts*",
+                "docs/develop/environment-configuration*",
+                "docs/encyclopedia/temporal-sdks*",
+                "docs/evaluate/development-production-features/core-application*"
+              ],
+              fullContent: true,
+              title: "Temporal .NET SDK Complete Development Guide"
+            },
+            {
+              filename: "llms-ruby-development.txt",
+              includePatterns: [
+                "docs/develop/ruby/**/*",
+                "docs/quickstarts*",
+                "docs/develop/environment-configuration*",
+                "docs/encyclopedia/temporal-sdks*",
+                "docs/evaluate/development-production-features/core-application*"
+              ],
+              fullContent: true,
+              title: "Temporal Ruby SDK Complete Development Guide"
+            },
+            {
+              filename: "llms-php-development.txt",
+              includePatterns: [
+                "docs/develop/php/**/*",
+                "docs/quickstarts*",
+                "docs/develop/environment-configuration*",
+                "docs/encyclopedia/temporal-sdks*",
+                "docs/evaluate/development-production-features/core-application*"
+              ],
+              fullContent: true,
+              title: "Temporal PHP SDK Complete Development Guide"
             }
           ]
         },

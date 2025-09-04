@@ -1,0 +1,4005 @@
+# Temporal Ruby SDK Complete Development Guide
+
+> Build invincible applications
+
+This file contains all documentation content in a single document following the llmstxt.org standard.
+
+## Environment Configuration
+
+Temporal Environment Configuration is a feature that allows you to configure a Temporal Client using environment variables and/or TOML configuration files, rather than setting connection options programmatically in your code. This decouples connection settings from application logic, making it easier to manage different environments (like development, staging, and production) without code changes.
+
+:::tip SUPPORT, STABILITY, and DEPENDENCY INFO
+
+This feature is currently in Pre-release in the Go and Python Temporal SDKs, as well as the Temporal CLI.
+
+:::
+
+## Configuration Methods
+
+You can configure your client using a TOML file, environment variables, or a combination of both. The configuration is loaded with a specific order of precedence:
+
+1. Environment Variables: These have the highest precedence. 
+If a setting is defined as an environment variable, it will always override any value set in a configuration file (useful for dynamic environments or for providing secrets).  
+2. TOML Configuration File: A TOML file can be used to define one or more configuration "profiles". This file is located by checking the following sources in order:  
+   1. The path specified by the TEMPORAL\_CONFIG\_FILE environment variable.  
+   2. The default configuration path: \~/.config/temporalio/temporal.toml (or the equivalent standard user config directory on your OS).
+
+## Configuration Profiles
+
+You can use configuration “profiles” to maintain separate configurations within a single file (for different environments). The "default" profile is used unless another is specified via the TEMPORAL\_PROFILE environment variable or in the SDK's load options. If a specific profile is requested but doesn’t exist, an error will be returned.
+
+## Configuration Settings
+
+The following table details all available settings, their corresponding environment variables, and their TOML file paths.
+
+| Setting | Environment Variable | TOML Path | Description |
+| :---- | :---- | :---- | :---- |
+| Configuration File Path | TEMPORAL\_CONFIG\_FILE | **NA** | Path to the TOML configuration file |
+| Server Address | TEMPORAL\_ADDRESS | profile.\<name\>.address | The host and port of the Temporal Frontend service (e.g., "localhost:7233"). |
+| Namespace | TEMPORAL\_NAMESPACE | profile.\<name\>.namespace | The Temporal Namespace to connect to. |
+| API Key | TEMPORAL\_API\_KEY | profile.\<name\>.api\_key | An API key for authentication. If present, TLS is enabled by default. |
+| Enable/Disable TLS | TEMPORAL\_TLS | profile.\<name\>.tls.disabled | Set to "true" to enable TLS, "false" to disable. In TOML, disabled \= true turns TLS off. |
+| Client Certificate | TEMPORAL\_TLS\_CLIENT\_CERT\_DATA / \_PATH | profile.\<name\>.tls.client\_cert\_data / \_path | The client's public TLS certificate. Can be provided as raw PEM data or a file path. |
+| Client Key | TEMPORAL\_TLS\_CLIENT\_KEY\_DATA / \_PATH | profile.\<name\>.tls.client\_key\_data / \_path | The client's private TLS key. Can be provided as raw PEM data or a file path. |
+| Server CA Cert | TEMPORAL\_TLS\_SERVER\_CA\_CERT\_DATA / \_PATH | profile.\<name\>.tls.server\_ca\_cert\_path / \_data | The Certificate Authority certificate for the server. Used to verify the server's cert. |
+| TLS Server Name | TEMPORAL\_TLS\_SERVER\_NAME | profile.\<name\>.tls.server\_name | Overrides the server name used for SNI (Server Name Indication) in the TLS handshake. |
+| Disable Host Verification | TEMPORAL\_TLS\_DISABLE\_HOST\_VERIFICATION | profile.\<name\>.tls.disable\_host\_verification | A boolean (true/false) to disable server hostname verification. Use with caution. Not supported by all SDKs. |
+| Codec Endpoint | TEMPORAL\_CODEC\_ENDPOINT | profile.\<name\>.codec.endpoint | The endpoint for a remote data converter. Not supported by all SDKs (where supported, not applied by default). Intended mostly for CLI use. |
+| Codec Auth | TEMPORAL\_CODEC\_AUTH | profile.\<name\>.codec.auth | The authorization header value for the remote data converter. |
+| gRPC Metadata | TEMPORAL\_GRPC\_META\_\* | profile.\<name\>.grpc\_meta | Sets gRPC headers. The part after \_META\_ becomes the header key (e.g., \_SOME\_KEY \-\> some-key). |
+
+## TOML Configuration Example
+
+Here is an example temporal.toml file that defines two profiles: default for local development and prod for production.
+
+```textproto
+# Default profile for local development
+[profile.default]
+address = "localhost:7233"
+namespace = "default"
+
+# Optional: Add custom gRPC headers
+[profile.default.grpc_meta]
+my-custom-header = "development-value"
+trace-id = "dev-trace-123"
+
+# Production profile for Temporal Cloud
+[profile.prod]
+address = "your-namespace.a1b2c.tmprl.cloud:7233"
+namespace = "your-namespace"
+api_key = "your-api-key-here"
+
+# TLS configuration for production
+[profile.prod.tls]
+# TLS is auto-enabled when this TLS config or API key is present, but you can configure it explicitly
+# disabled = false
+# Use certificate files for mTLS
+client_cert_path = "/etc/temporal/certs/client.pem"
+client_key_path = "/etc/temporal/certs/client.key"
+
+# Custom headers for production
+[profile.prod.grpc_meta]
+environment = "production"
+service-version = "v1.2.3"
+
+# Staging profile with inline certificate data
+[profile.staging]
+address = "staging.temporal.example.com:7233"
+namespace = "staging"
+
+[profile.staging.tls]
+# Example of providing certificate data directly (base64 or PEM format)
+client_cert_data = """-----BEGIN CERTIFICATE-----
+MIICertificateDataHere...
+-----END CERTIFICATE-----"""
+client_key_data = """-----BEGIN PRIVATE KEY-----
+MIIPrivateKeyDataHere...
+-----END PRIVATE KEY-----"""
+```
+
+## CLI Integration
+
+The Temporal CLI tool includes temporal config commands that allow you to read and write to the TOML configuration file. This provides a convenient way to manage your connection profiles without manually editing the file.
+
+* temporal config get \<property\>: Reads a specific value from the current profile.  
+* temporal config set \<property\> \<value\>: Sets a property in the current profile.  
+* temporal config delete \<property\>: Deletes a property from the current profile.  
+* temporal config list: Lists all available profiles in the config file.
+
+These CLI commands directly manipulate the temporal.toml file. 
+This differs from the SDKs, which only *read* from the file and environment at runtime to establish a client connection. 
+The CLI is a tool for managing the configuration source, while the SDKs are consumers of that configuration. 
+You can select a profile for the CLI to use with the \--profile flag (for example, temporal \--profile prod ...).
+
+CLI Usage Example
+
+```textproto
+# Set a specific property for the current profile
+temporal config set --prop address --value "prod.temporal.io:7233"
+
+# Delete a property for the current profile
+temporal config delete --prop tls.client_cert_path
+
+# Get a specific property for the current profile
+temporal config get --prop address
+
+# Get all settings for the current profile
+temporal config get
+
+# Use a specific profile
+temporal --profile prod config get --prop address
+
+# List all profiles
+temporal config list
+
+# Connect to a client with the default profile, list its workflows
+temporal workflow list
+
+# Connect to a client with the 'prod' profile, list its workflows
+temporal --profile prod workflow list
+
+# Start a workflow using the 'prod' profile
+temporal --profile prod workflow start \
+--type YourWorkflow \
+--task-queue your-task-queue \
+--input '"your-workflow-input"'
+```
+
+## SDK Usage Example (Python)
+
+The following Python examples demonstrate how to use `temporalio.envconfig` to load configuration from environment variables and TOML files.
+
+### Load the default profile
+
+The most common use case is to load the "default" profile from environment variables and the default TOML file location (`~/.config/temporalio/temporal.toml`). The `ClientConfigProfile.load()` method handles this automatically. Any `TEMPORAL_*` environment variables will override settings from the TOML file.
+
+```py
+
+from temporalio.client import Client
+from temporalio.envconfig import ClientConfigProfile
+
+async def main():
+    # Load the "default" profile from default locations and environment variables.
+    default_profile = ClientConfigProfile.load()
+    connect_config = default_profile.to_client_connect_config()
+
+    # Connect to the client using the loaded configuration.
+    client = await Client.connect(**connect_config)
+    print(f"✅ Client connected to {client.target} in namespace '{client.namespace}'")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### Load a specific profile by name
+
+If your TOML configuration file contains multiple profiles, you can select one by passing its name to `ClientConfigProfile.load(profile="<your-profile-name>")`.
+
+```py
+
+from temporalio.client import Client
+from temporalio.envconfig import ClientConfigProfile
+
+async def main():
+    # Load a specific, named profile from default locations.
+    # This requires a [profile.prod] section in your TOML file.
+    prod_profile = ClientConfigProfile.load(profile="prod")
+    connect_config = prod_profile.to_client_connect_config()
+
+    # Connect to the client using the loaded configuration.
+    client = await Client.connect(**connect_config)
+    print(f"✅ Client connected to {client.target} in namespace '{client.namespace}'")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### Load configuration from a custom file path
+
+To load configuration from a non-standard file location, you can use the `ClientConfig.load_client_connect_config()` shorthand. This is useful if you store application-specific configurations separately.
+
+```py
+
+from pathlib import Path
+from temporalio.client import Client
+from temporalio.envconfig import ClientConfig
+
+async def main():
+    # This file would need to exist on your filesystem.
+    config_file = Path.home() / ".config" / "my-app" / "temporal.toml"
+
+    # Use ClientConfig.load_client_connect_config as a convenient shorthand for
+    # loading a profile from a specific file and preparing it for connection.
+    connect_config = ClientConfig.load_client_connect_config(
+        config_file=str(config_file),
+    )
+
+    # Connect to the client using the loaded configuration.
+    client = await Client.connect(**connect_config)
+    print(f"✅ Client connected to {client.target} in namespace '{client.namespace}'")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### Override configuration programmatically
+
+You can also load a base configuration and then override specific settings programmatically in your code. The loaded configuration is a dictionary, so you can modify it before passing it to `Client.connect()`.
+
+```py
+
+from temporalio.client import Client
+from temporalio.envconfig import ClientConfig
+
+async def main():
+    # Load the default profile configuration.
+    connect_config = ClientConfig.load_client_connect_config()
+
+    # Apply custom configuration overrides.
+    print("Applying custom configuration overrides...")
+    connect_config["target_host"] = "localhost:7233"
+    connect_config["namespace"] = "test-namespace"
+
+    # Connect to the client using the modified configuration.
+    client = await Client.connect(**connect_config)
+    print(f"✅ Client connected to {client.target} in namespace '{client.namespace}'")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## SDK Usage Example (Go)
+
+The following Go examples demonstrate how to use `envconfig` to load configuration from different sources to connect a client.
+
+### Load the default profile
+
+The most common use case is to load the "default" profile from environment variables and the default TOML file location (`~/.config/temporalio/temporal.toml`). The `envconfig.MustLoadDefaultClientOptions()` function handles this automatically. Any `TEMPORAL_*` environment variables will override settings from the TOML file.
+
+```go
+package main
+
+	"fmt"
+	"log"
+
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/contrib/envconfig"
+)
+
+func main() {
+	// Loads the "default" profile from the standard location and environment variables.
+	c, err := client.Dial(envconfig.MustLoadDefaultClientOptions())
+	if err != nil {
+		log.Fatalf("Failed to create client: %v", err)
+	}
+	defer c.Close()
+
+	fmt.Printf("✅ Connected to Temporal namespace %q on %s\n", c.Options().Namespace, c.Options().HostPort)
+}
+```
+
+### Load a specific profile by name
+
+If your TOML configuration file contains multiple profiles, you can select one by passing its name in `envconfig.LoadClientOptionsRequest`.
+
+```go
+package main
+
+	"fmt"
+	"log"
+
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/contrib/envconfig"
+)
+
+func main() {
+	// Load a specific profile from the TOML config file.
+	// This requires a [profile.prod] section in your config.
+	opts, err := envconfig.LoadClientOptions(envconfig.LoadClientOptionsRequest{
+		ConfigFileProfile: "prod",
+	})
+	if err != nil {
+		log.Fatalf("Failed to load 'prod' profile: %v", err)
+	}
+
+	c, err := client.Dial(opts)
+	if err != nil {
+		log.Fatalf("Failed to connect using 'prod' profile: %v", err)
+	}
+	defer c.Close()
+
+	fmt.Printf("✅ Connected to Temporal namespace %q on %s using 'prod' profile\n", c.Options().Namespace, c.Options().HostPort)
+}
+```
+
+### Load configuration from a custom file path
+
+To load configuration from a non-standard file location, specify the path in `envconfig.LoadClientOptionsRequest`. This is useful if you store application-specific configurations separately.
+
+```go
+package main
+
+	"fmt"
+	"log"
+
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/contrib/envconfig"
+)
+
+func main() {
+	// Replace with the actual path to your TOML file.
+	configFilePath := "/Users/yourname/.config/my-app/temporal.toml"
+
+	opts, err := envconfig.LoadClientOptions(envconfig.LoadClientOptionsRequest{
+		ConfigFilePath: configFilePath,
+	})
+	if err != nil {
+		log.Fatalf("Failed to load client config from custom file: %v", err)
+	}
+
+	c, err := client.Dial(opts)
+	if err != nil {
+		log.Fatalf("Failed to connect using custom config file: %v", err)
+	}
+	defer c.Close()
+
+	fmt.Printf("✅ Connected using custom config at: %s\n", configFilePath)
+}
+```
+
+### Override configuration programmatically
+
+You can also load a base configuration and then override specific settings programmatically in your code. The loaded `client.Options` struct can be modified before passing it to `client.Dial()`.
+
+```go
+package main
+
+	"fmt"
+	"log"
+
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/contrib/envconfig"
+)
+
+func main() {
+	// Load the base configuration (e.g., from the default profile).
+	opts := envconfig.MustLoadDefaultClientOptions()
+
+	// Apply overrides programmatically.
+	opts.HostPort = "localhost:7233"
+	opts.Namespace = "test-namespace"
+
+	c, err := client.Dial(opts)
+	if err != nil {
+		log.Fatalf("Failed to connect with overridden options: %v", err)
+	}
+	defer c.Close()
+
+	fmt.Printf("✅ Connected with overridden config to: %s in namespace: %s\n", opts.HostPort, opts.Namespace)
+}
+```
+
+---
+
+## Asynchronous Activity completion - Ruby SDK
+
+## How to asynchronously complete an Activity {#asynchronous-activity-completion}
+
+This page describes how to asynchronously complete an Activity.
+
+[Asynchronous Activity Completion](/activity-execution#asynchronous-activity-completion) enables the Activity Function to return without the Activity Execution completing.
+
+There are three steps to follow:
+
+1. The Activity provides the external system with identifying information needed to complete the Activity Execution.
+   Identifying information can be a [Task Token](/activity-execution#task-token), or a combination of Namespace, Workflow Id, and Activity Id.
+2. The Activity Function completes in a way that identifies it as waiting to be completed by an external system.
+3. The Temporal Client is used to Heartbeat and complete the Activity.
+
+To mark an Activity as completing asynchronously, do the following inside the Activity.
+
+```ruby
+# Capture token for later completion
+captured_token = Temporalio::Activity::Context.current.info.task_token
+
+# Raise a special exception that says an activity will be completed somewhere else
+raise Temporalio::Activity::CompleteAsyncError
+```
+
+To update an Activity outside the Activity, use the [async_activity_handle](https://ruby.temporal.io/Temporalio/Client.html#async_activity_handle-instance_method) method on the client to get the handle of the Activity.
+
+```ruby
+handle = my_client.async_activity_handle(captured_token)
+```
+
+Then, on that handle, you can use `heartbeat`, `complete`, `fail`, or `report_cancellation` methods to update the Activity.
+
+```ruby
+handle.complete('completion value')
+```
+
+---
+
+## Child Workflows - Ruby SDK
+
+This page shows how to do the following:
+
+- [Start a Child Workflow Execution](#child-workflows) using the Ruby SDK
+- [Set a Parent Close Policy](#parent-close-policy) using the Ruby SDK
+
+## Start a Child Workflow Execution {#child-workflows}
+
+A [Child Workflow Execution](/child-workflows) is a Workflow Execution that is scheduled from within another Workflow using a Child Workflow API.
+
+When using a Child Workflow API, Child Workflow related Events ([StartChildWorkflowExecutionInitiated](/references/events#startchildworkflowexecutioninitiated), [ChildWorkflowExecutionStarted](/references/events#childworkflowexecutionstarted), [ChildWorkflowExecutionCompleted](/references/events#childworkflowexecutioncompleted), etc...) are logged in the Workflow Execution Event History.
+
+Always block progress until the [ChildWorkflowExecutionStarted](/references/events#childworkflowexecutionstarted) Event is logged to the Event History to ensure the Child Workflow Execution has started.
+After that, Child Workflow Executions may be abandoned using the _Abandon_ [Parent Close Policy](/parent-close-policy) set in the Child Workflow Options.
+
+To spawn a Child Workflow Execution in Ruby, use the `execute_child_workflow` method which starts the Child Workflow and waits for completion or
+use the `start_child_workflow` method to start a Child Workflow and return its handle.
+This is useful if you want to do something after it has only started, or to get the Workflow/Run ID, or to be able to signal it while running.
+
+:::note
+
+`execute_child_workflow` is a helper method for `start_child_workflow(...).result`.
+
+:::
+
+```ruby
+Temporalio::Workflow.execute_child_workflow(MyChildWorkflow, 'my-workflow-arg')
+```
+
+## Set a Parent Close Policy {#parent-close-policy}
+
+A [Parent Close Policy](/parent-close-policy) determines what happens to a Child Workflow Execution if its Parent changes to a Closed status (Completed, Failed, or Timed Out).
+
+The default Parent Close Policy option is set to terminate the Child Workflow Execution.
+
+Set the `parent_close_policy` parameter for `execute_child_workflow` or `start_child_workflow` to specify the behavior of the Child Workflow when the Parent Workflow closes.
+
+```ruby
+Temporalio::Workflow.execute_child_workflow(
+  MyChildWorkflow,
+  'my-workflow-arg',
+  parent_close_policy: Temporalio::Workflow::ParentClosePolicy::ABANDON
+)
+```
+
+---
+
+## Continue-As-New - Ruby SDK
+
+This page describes how to Continue-As-New using the Temporal Ruby SDK.
+
+[Continue-As-New](/workflow-execution/continue-as-new) enables a Workflow Execution to close successfully and create a new Workflow Execution in a single atomic operation if the number of Events in the Event History is becoming too large.
+The Workflow Execution spawned from the use of Continue-As-New has the same Workflow Id, a new Run Id, and a fresh Event History and is passed all the appropriate parameters.
+
+:::caution
+
+As a precautionary measure, the Workflow Execution's Event History is limited to [51,200 Events](https://github.com/temporalio/temporal/blob/e3496b1c51bfaaae8142b78e4032cc791de8a76f/service/history/configs/config.go#L382) or [50 MB](https://github.com/temporalio/temporal/blob/e3496b1c51bfaaae8142b78e4032cc791de8a76f/service/history/configs/config.go#L380) and will warn you after 10,240 Events or 10 MB.
+
+:::
+
+To prevent a Workflow Execution Event History from exceeding this limit and failing, use Continue-As-New to start a new Workflow Execution with a fresh Event History.
+
+A very large Event History can adversely affect the performance of a Workflow Execution.
+For example, in the case of a Workflow Worker failure, the full Event History must be pulled from the Temporal Service and given to another Worker via a Workflow Task.
+If the Event history is very large, it may take some time to load it.
+
+The Continue-As-New feature enables developers to complete the current Workflow Execution and start a new one atomically.
+
+The new Workflow Execution has the same Workflow Id, but a different Run Id, and has its own Event History.
+
+## Continue-As-New in Ruby {#continue-as-new}
+
+To Continue-As-New in Ruby, raise a `Temporalio::Workflow::ContinueAsNewError` from inside your Workflow, which will stop the Workflow immediately and Continue-As-New.
+
+```ruby
+raise Temporalio::Workflow::ContinueAsNewError.new('my-new-arg')
+```
+
+:::warning Using Continue-as-New and Updates
+
+- Temporal _does not_ support Continue-as-New functionality within Update handlers.
+- Complete all handlers _before_ using Continue-as-New.
+- Use Continue-as-New from your main Workflow Definition method, just as you would complete or fail a Workflow Execution.
+
+:::
+
+---
+
+## Converters and encryption - Ruby SDK
+
+Temporal's security model is designed around client-side encryption of Payloads.
+A client may encrypt Payloads before sending them to the server, and decrypt them after receiving them from the server.
+This provides a high degree of confidentiality because the Temporal Server itself has absolutely no knowledge of the actual data.
+It also gives implementers more power and more freedom regarding which client is able to read which data -- they can control access with keys, algorithms, or other security measures.
+
+A Temporal developer adds client-side encryption of Payloads by providing a Custom Payload Codec to its Client.
+Depending on business needs, a complete implementation of Payload Encryption may involve selecting appropriate encryption algorithms, managing encryption keys, restricting a subset of their users from viewing payload output, or a combination of these.
+
+The server itself never adds encryption over Payloads.
+Therefore, unless client-side encryption is implemented, Payload data will be persisted in non-encrypted form to the data store, and any Client that can make requests to a Temporal namespace (including the Temporal UI and CLI) will be able to read Payloads contained in Workflows.
+When working with sensitive data, you should always implement Payload encryption.
+
+## Custom Payload Codec {#custom-payload-codec}
+
+Custom Data Converters can change the default Temporal Data Conversion behavior by adding hooks, sending payloads to external storage, or performing different encoding steps.
+If you only need to change the encoding performed on your payloads -- by adding compression or encryption -- you can override the default Data Converter to use a new `PayloadCodec`.
+
+The Payload Codec needs to extend `Temporalio::Converters::PayloadCodec` and implement `encode` and `decode` methods.
+These should convert the given payloads as needed into new payloads, using the `"encoding"` metadata field.
+Do not mutate the existing payloads.
+Here is an example of an encryption codec that just uses base64 in each direction:
+
+```ruby
+class Base64Codec < Temporalio::Converters::PayloadCodec
+  def encode(payloads)
+    payloads.map do |p|
+      Temporalio::Api::Common::V1::Payload.new(
+        # Set our specific encoding. We may also want to add a key ID in here for use by
+        # the decode side
+        metadata: { 'encoding' => 'binary/my-payload-encoding' },
+        data: Base64.strict_encode64(p.to_proto)
+      )
+    end
+  end
+
+  def decode(payloads)
+    payloads.map do |p|
+      # Ignore if it doesn't have our expected encoding
+      next p unless p.metadata['encoding'] == 'binary/my-payload-encoding'
+
+      Temporalio::Api::Common::V1::Payload.decode(
+        Base64.strict_decode64(p.data)
+      )
+    end
+  end
+end
+```
+
+**Set Data Converter to use custom Payload Codec**
+
+When creating a client, the default `DataConverter` can be updated with the payload codec like so:
+
+```ruby
+my_client = Temporalio::Client.connect(
+  'localhost:7233',
+  'my-namespace',
+  data_converter: Temporalio::Converters::DataConverter.new(payload_codec: Base64Codec.new)
+)
+```
+
+- Data **encoding** is performed by the client using the converters and codecs provided by Temporal or your custom implementation when passing input to the Temporal Cluster. For example, plain text input is usually serialized into a JSON object, and can then be compressed or encrypted.
+- Data **decoding** may be performed by your application logic during your Workflows or Activities as necessary, but decoded Workflow results are never persisted back to the Temporal Cluster.
+  Instead, they are stored encoded on the Cluster, and you need to provide an additional parameter when using the [temporal workflow show](/cli/workflow#show) command or when browsing the Web UI to view output.
+
+<!-- TODO: For reference, see the [Encryption](https://github.com/temporalio/samples-ruby/tree/main/encryption) sample. -->
+
+### Using a Codec Server
+
+A Codec Server is an HTTP server that uses your custom Codec logic to decode your data remotely.
+The Codec Server is independent of the Temporal Cluster and decodes your encrypted payloads through predefined endpoints.
+You create, operate, and manage access to your Codec Server in your own environment.
+The Temporal CLI and the Web UI in turn provide built-in hooks to call the Codec Server to decode encrypted payloads on demand.
+Refer to the [Codec Server](/production-deployment/data-encryption) documentation for information on how to design and deploy a Codec Server.
+
+## Payload conversion {#custom-payload-converter}
+
+Temporal SDKs provide a default [Payload Converter](/payload-converter) that can be customized to convert a custom data type to [Payload](/dataconversion#payload) and back.
+
+### Conversion sequence {#conversion-sequence}
+
+The order in which your encoding Payload Converters are applied depend on the order given to the Data Converter.
+You can set multiple encoding Payload Converters to run your conversions.
+When the Data Converter receives a value for conversion, it passes through each Payload Converter in sequence until the converter that handles the data type does the conversion.
+
+Payload Converters can be customized independently of a Payload Codec.
+Temporal's Converter architecture looks like this:
+
+<CaptionedImage
+    src="/img/info/converter-architecture.png"
+    title="Temporal converter architecture"
+/>
+
+### Supported Data Types {#supported-data-types}
+
+Data converters are used to convert raw Temporal payloads to/from actual Ruby types.
+A custom data converter can be set via the `data_converter` keyword argument when creating a client. Data converters are a combination of payload converters, payload codecs, and failure converters.
+Payload converters convert Ruby values to/from serialized bytes. Payload codecs convert bytes to bytes (e.g. for compression or encryption). Failure converters convert exceptions to/from serialized failures.
+
+Data converters are in the `Temporalio::Converters` module.
+The default data converter uses a default payload converter, which supports the following types:
+
+- `nil`
+- "bytes" (i.e. `String` with `Encoding::ASCII_8BIT` encoding)
+- `Google::Protobuf::MessageExts` instances
+- [JSON module](https://docs.ruby-lang.org/en/master/JSON.html) for everything else
+
+This means that normal Ruby objects will use `JSON.generate` when serializing and `JSON.parse` when deserializing (with `create_additions: true` set by default).
+So a Ruby object will often appear as a hash when deserialized.
+Also, hashes that are passed in with symbol keys end up with string keys when deserialized.
+While "JSON Additions" are supported, it is not cross-SDK-language compatible since this is a Ruby-specific construct.
+
+The default payload converter is a collection of "encoding payload converters".
+On serialize, each encoding converter will be tried in order until one accepts (default falls through to the JSON one).
+The encoding converter sets an `encoding` metadata value which is used to know which converter to use on deserialize.
+Custom encoding converters can be created, or even the entire payload converter can be replaced with a different implementation.
+
+**NOTE:** For ActiveRecord, or other general/ORM models that are used for a different purpose, it is not recommended to try to reuse them as Temporal models.
+Eventually model purposes diverge and models for a Temporal workflows/activities should be specific to their use for clarity and compatibility reasons.
+Also many Ruby ORMs do many lazy things and therefore provide unclear serialization semantics.
+Instead, consider having models specific for workflows/activities and translate to/from existing models as needed.
+See the next section on how to do this with ActiveModel objects.
+
+#### ActiveModel {#active-model}
+
+By default, ActiveModel objects do not natively support the `JSON` module.
+A mixin can be created to add this support for ActiveModel, for example:
+
+```ruby
+module ActiveModelJSONSupport
+  extend ActiveSupport::Concern
+  include ActiveModel::Serializers::JSON
+
+  included do
+    def as_json(*)
+      super.merge(::JSON.create_id => self.class.name)
+    end
+
+    def to_json(*args)
+      as_json.to_json(*args)
+    end
+
+    def self.json_create(object)
+      object = object.dup
+      object.delete(::JSON.create_id)
+      new(**object.symbolize_keys)
+    end
+  end
+end
+```
+
+Now if `include ActiveModelJSONSupport` is present on any ActiveModel class, on serialization `to_json` will be used which will use `as_json` which calls the super `as_json` but also includes the fully qualified class name as the JSON
+`create_id` key.
+On deserialization, Ruby JSON then uses this key to know what class to call `json_create` on.
+
+---
+
+## Core application - Ruby SDK
+
+This page shows how to do the following:
+
+- [Develop a basic Workflow Definition](#develop-workflow)
+- [Develop a basic Activity Definition](#develop-activity)
+- [Start an Activity from a Workflow](#activity-execution)
+- [Run a Worker Process](#run-worker-process)
+- [Set a Dynamic Workflow](#set-a-dynamic-workflow)
+- [Set a Dynamic Activity](#set-a-dynamic-activity)
+
+## Develop a Workflow {#develop-workflow}
+
+Workflows are the fundamental unit of a Temporal Application, and it all starts with the development of a [Workflow Definition](/workflow-definition).
+
+In the Temporal Ruby SDK programming model, Workflows are defined as classes.
+
+Have the Workflow class extend `Temporalio::Workflow::Definition` to define a Workflow.
+
+The entrypoint is the `execute` method.
+
+```ruby
+class MyWorkflow < Temporalio::Workflow::Definition
+  def execute(name)
+    Temporalio::Workflow.execute_activity(
+      MyActivity,
+      { greeting: 'Hello', name: },
+      start_to_close_timeout: 100
+    )
+  end
+end
+```
+
+Temporal Workflows may have any number of custom parameters.
+However, we strongly recommend that hashes or objects are used as parameters, so that the object's individual fields may be altered without breaking the signature of the Workflow.
+
+### Workflow Logic Requirements {#workflow-logic-requirements}
+
+Temporal Workflows [must be deterministic](https://docs.temporal.io/workflows#deterministic-constraints), which includes
+Ruby workflows. This means there are several things workflows cannot do such as:
+
+- Perform IO (network, disk, stdio, etc)
+- Access/alter external mutable state
+- Do any threading
+- Do anything using the system clock (e.g. `Time.Now`)
+- Make any random calls
+- Make any not-guaranteed-deterministic calls
+
+To prevent illegal workflow calls, a call tracer is put on the workflow thread that raises an exception if any illegal
+calls are made.
+Which calls are illegal is configurable in the worker options.
+
+### Customize Workflow Type {#workflow-type}
+
+Workflows have a Type that are referred to as the Workflow name.
+
+The following examples demonstrate how to set a custom name for your Workflow Type.
+
+You can customize the Workflow name with a custom name in a `workflow_name` class method call on the class.
+The Workflow name defaults to the unqualified class name.
+
+```ruby
+class MyWorkflow < Temporalio::Workflow::Definition
+  # Customize the name
+  workflow_name :MyDifferentWorkflowName
+
+  def execute(name)
+    Temporalio::Workflow.execute_activity(
+      MyActivity,
+      { greeting: 'Hello', name: },
+      start_to_close_timeout: 100
+    )
+  end
+end
+```
+
+## Develop an Activity {#develop-activity}
+
+One of the primary things that Workflows do is orchestrate the execution of Activities.
+An Activity is a normal method execution that's intended to execute a single, well-defined action (either short or long-running), such as querying a database, calling a third-party API, or transcoding a media file.
+An Activity can interact with world outside the Temporal Platform or use a Temporal Client to interact with a Temporal Service.
+For the Workflow to be able to execute the Activity, we must define the [Activity Definition](/activity-definition).
+
+You can develop an Activity Definition by creating a class that extends `Temporalio::Activity::Definition`.
+To register a class as an Activity with a custom name, use the `activity_name` class method in the class definition.
+Otherwise, the activity name is the unqualified class name.
+
+```ruby
+class MyActivity < Temporalio::Activity::Definition
+  def execute(input)
+    "#{input['greeting']}, #{input['name']}!"
+  end
+end
+```
+
+Activity implementation code should be _idempotent_. Learn more about [idempotency](/activity-definition#idempotency).
+
+There is no explicit limit to the total number of parameters that an [Activity Definition](/activity-definition) may support.
+However, there is a limit to the total size of the data that ends up encoded into a gRPC message Payload.
+
+A single argument is limited to a maximum size of 2 MB.
+And the total size of a gRPC message, which includes all the arguments, is limited to a maximum of 4 MB.
+
+Some SDKs require that you pass context objects, others do not.
+When it comes to your application data—that is, data that is serialized and encoded into a Payload—we recommend that you use a single hash or object as an argument that wraps the application data passed to Activities.
+This is so that you can change what data is passed to the Activity without breaking a method signature.
+
+The `execute` method in your Activity can technically accept multiple parameters of any data type that Temporal can convert.
+However, Temporal strongly encourages using a single parameter object to simplify versioning and maintainability.
+
+### Activity Concurrency and Executors {#activity-concurrency-and-executors}
+
+:::note
+
+This section covers advanced concurrency and execution options that most users will not need when getting started.
+
+:::
+
+By default, activities run in the "thread pool executor" (i.e. `Temporalio::Worker::ActivityExecutor::ThreadPool`).
+This default is shared across all workers and is a naive thread pool that continually makes threads as needed when none are
+idle/available to handle incoming work.
+If a thread sits idle long enough, it will be killed.
+
+The maximum number of concurrent activities a worker will run at a time is configured via its `tuner` option.
+The default is `Temporalio::Worker::Tuner.create_fixed` which defaults to 100 activities at a time for that worker.
+When this value is reached, the worker will stop asking for work from the server until there are slots available again.
+
+In addition to the thread pool executor, there is also a fiber executor in the default executor set.
+To use fibers, call `activity_executor :fiber` class method at the top of the activity class (the default of this value is `:default` which is the thread pool executor).
+Activities can only choose the fiber executor if the worker has been created and run in a fiber, but thread pool executor is always available.
+Currently due to [an issue](https://github.com/temporalio/sdk-ruby/issues/162), workers can only run in a fiber on Ruby versions 3.3 and newer.
+
+## Start Activity Execution {#activity-execution}
+
+Calls to spawn [Activity Executions](/activity-execution) are written within a [Workflow Definition](/workflow-definition).
+The call to spawn an Activity Execution generates the [ScheduleActivityTask](/references/commands#scheduleactivitytask) Command.
+This results in the set of three [Activity Task](/tasks#activity-task) related Events ([ActivityTaskScheduled](/references/events#activitytaskscheduled), [ActivityTaskStarted](/references/events#activitytaskstarted), and `ActivityTask[Closed]`)in your Workflow Execution Event History.
+
+The values passed to Activities through invocation parameters or returned through a result value are recorded in the Execution history.
+The entire Execution history is transferred from the Temporal service to Workflow Workers when a Workflow state needs to recover.
+A large Execution history can thus adversely impact the performance of your Workflow.
+
+Therefore, be mindful of the amount of data you transfer through Activity invocation parameters or Return Values.
+Otherwise, no additional limitations exist on Activity implementations.
+
+To spawn an Activity Execution, use the `execute_activity` operation from within your Workflow Definition.
+
+```ruby
+class MyWorkflow < Temporalio::Workflow::Definition
+  # Customize the name
+  workflow_name :MyDifferentWorkflowName
+
+  def execute(name)
+    Temporalio::Workflow.execute_activity(
+      MyActivity,
+      { greeting: 'Hello', name: },
+      start_to_close_timeout: 100
+    )
+  end
+end
+```
+
+Activity Execution semantics rely on several parameters.
+The only required value that needs to be set is either a [Schedule-To-Close Timeout](/encyclopedia/detecting-activity-failures#schedule-to-close-timeout) or a [Start-To-Close Timeout](/encyclopedia/detecting-activity-failures#start-to-close-timeout).
+These values are set as keyword parameters.
+
+The Activity result is the returned from the `execute_activity` call.
+
+## Workflow Futures {#workflow-futures}
+
+`Temporalio::Workflow::Future` can be used for running things in the background or concurrently.
+Temporal provides Workflow-safe wrappers around some core language features in cases like these.
+`Temporalio::Workflow::Future` is a safe wrapper around `Fiber.schedule` for running multiple Activities at once.
+The Ruby SDK also provides `Workflow.wait_condition` for awaiting a result.
+
+Futures are never used implicitly, but they work with all Workflow code and constructs.
+For instance, to run 3 activities and wait for them all to complete, something like this can be written:
+
+```ruby
+# Start 3 activities in background
+fut1 = Temporalio::Workflow::Future.new do
+  Temporalio::Workflow.execute_activity(MyActivity1, schedule_to_close_timeout: 300)
+end
+fut2 = Temporalio::Workflow::Future.new do
+  Temporalio::Workflow.execute_activity(MyActivity2, schedule_to_close_timeout: 300)
+end
+fut3 = Temporalio::Workflow::Future.new do
+  Temporalio::Workflow.execute_activity(MyActivity3, schedule_to_close_timeout: 300)
+end
+
+# Wait for them all to complete
+Temporalio::Workflow::Future.all_of(fut1, fut2, fut3).wait
+
+Temporalio::Workflow.logger.info("Got: #{fut1.result}, #{fut2.result}, #{fut3.result}")
+```
+
+Or, say, to wait on the first of 5 activities or a timeout to complete:
+
+```ruby
+# Start 5 activities
+act_futs = 5.times.map do |i|
+  Temporalio::Workflow::Future.new do
+    Temporalio::Workflow.execute_activity(MyActivity, "my-arg-#{i}", schedule_to_close_timeout: 300)
+  end
+end
+# Start a timer
+sleep_fut = Temporalio::Workflow::Future.new { Temporalio::Workflow.sleep(30) }
+
+# Wait for first act result or sleep fut
+act_result = Temporalio::Workflow::Future.any_of(sleep_fut, *act_futs).wait
+# Fail if timer done first
+raise Temporalio::Error::ApplicationError, 'Timer expired' if sleep_fut.done?
+# Print act result otherwise
+Temporalio::Workflow.logger.info("Act result: #{act_result}")
+```
+
+There are several other details not covered here about futures, such as how exceptions are handled, how to use a setter
+proc instead of a block, etc. See the [API documentation](https://ruby.temporal.io/Temporalio/Workflow/Future.html) for details.
+
+## Run Worker Process {#run-worker-process}
+
+The [Worker Process](/workers#worker-process) is where Workflow Functions and Activity Functions are actually executed.
+In a Temporal application deployment, you ship and scale as many Workers as you need to handle the load of your Workflows and Activities.
+
+- Each [Worker Entity](/workers#worker-entity) in the Worker Process must register the exact Workflow Types and Activity Types it may execute.
+- Each Worker Entity must also associate itself with exactly one [Task Queue](/task-queue).
+- Each Worker Entity polling the same Task Queue must be registered with the same Workflow Types and Activity Types.
+
+A [Worker Entity](/workers#worker-entity) is the component within a Worker Process that listens to a specific Task Queue.
+
+A Worker Entity contains a Workflow Worker and/or an Activity Worker, which makes progress on Workflow Executions and Activity Executions, respectively.
+
+Workers are implemented in each Temporal SDK, and can be deployed with just a bit of boilerplate.
+To create a Worker, use `Temporalio::Worker.new()`, providing the Worker options which include Task Queue, Workflows, and Activities and more.
+
+The following code example creates a Worker that polls for tasks from the Task Queue and executes the Workflow.
+When a Worker is created, it accepts a list of Workflows, a list of Activities, or both.
+
+```ruby
+# Create a client to localhost on default namespace
+client = Temporalio::Client.connect('localhost:7233', 'default')
+
+# Create a worker with the client, activities, and workflows
+worker = Temporalio::Worker.new(
+  client:,
+  task_queue: 'my-task-queue',
+  workflows: [MyWorkflow],
+  # This provides the activity instance which means it is reused for each attempt, but
+  # just the class can be provided to instantiate for each attempt
+  activities: [MyActivity.new]
+)
+
+# Run the worker until SIGINT. There are other ways to wait for shutdown, or a block can
+# be provided that will shutdown when the block completes
+worker.run(shutdown_signals: ['SIGINT'])
+```
+
+To run multiple workers, `Temporalio::Worker.run_all` may be used instead.
+
+All Workers listening to the same Task Queue name must be registered to handle the exact same Workflows Types and Activity Types.
+
+If a Worker polls a Task for a Workflow Type or Activity Type it does not know about, it fails that Task.
+However, the failure of the Task does not cause the associated Workflow Execution to fail.
+
+## Set a Dynamic Workflow {#set-a-dynamic-workflow}
+
+A Dynamic Workflow in Temporal is a Workflow that is invoked dynamically at runtime if no other Workflow with the same name is registered.
+A Workflow can be made dynamic by invoking `workflow_dynamic` class method at the top of the definition.
+You must register the Workflow with the Worker before it can be invoked.
+Only one Dynamic Workflow can be present on a Worker.
+
+Often, dynamic is used in conjunction with `workflow_raw_args` which does not convert arguments but instead passes them
+through as a splatted array of `Temporalio::Converters::RawValue` instances.
+
+```ruby
+class MyDynamicWorkflow < Temporalio::Workflow::Definition
+  # Make this the dynamic workflow and accept raw args
+  workflow_dynamic
+  workflow_raw_args
+
+  def execute(*raw_args)
+    # Require a single arg for our workflow
+    raise Temporalio::Error::ApplicationError, 'One arg expected' unless raw_args.size == 1
+
+    # Use payload converter to convert it
+    name = Temporalio::Workflow.payload_converter.from_payload(raw_args.first.payload)
+    Temporalio::Workflow.execute_activity(
+      MyActivity,
+      { greeting: 'Hello', name: },
+      start_to_close_timeout: 100
+    )
+  end
+end
+```
+
+## Set a Dynamic Activity {#set-a-dynamic-activity}
+
+A Dynamic Activity in Temporal is an Activity that is invoked dynamically at runtime if no other Activity with the same name is registered.
+An Activity can be made dynamic by invoking `activity_dynamic` class method at the top of the definition.
+You must register the Activity with the Worker before it can be invoked.
+Only one Dynamic Activity can be present on a Worker.
+
+Often, dynamic is used in conjunction with `activity_raw_args` which does not convert arguments but instead passes them
+through as a splatted array of `Temporalio::Converters::RawValue` instances.
+
+```ruby
+class MyDynamicActivity < Temporalio::Activity::Definition
+  # Make this the dynamic activity and accept raw args
+  activity_dynamic
+  activity_raw_args
+
+  def execute(*raw_args)
+    raise Temporalio::Error::ApplicationError, 'One arg expected' unless raw_args.size == 1
+
+    # Use payload converter to convert it
+    input = Temporalio::Activity::Context.current.payload_converter.from_payload(raw_args.first.payload)
+    "#{input['greeting']}, #{input['name']}!"
+  end
+end
+```
+
+---
+
+## Debugging - Ruby SDK
+
+## Debugging {#debug}
+
+This page shows how to do the following:
+
+- [Debug in a development environment](#debug-in-a-development-environment)
+- [Debug in a development production](#debug-in-a-development-environment)
+
+## Debug in a development environment {#debug-in-a-development-environment}
+
+In developing Workflows, you can use the normal development tools of logging and a debugger to see what’s happening in your Workflow.
+
+In addition to the normal development tools of logging and a debugger, you can also see what’s happening in your Workflow by using the [Web UI](/web-ui) or [Temporal CLI](/cli).
+The Web UI provides insight into your Workflows, making it easier to identify issues and monitor the state of your Workflows in real time.
+
+## Debug in a production environment {#debug-in-a-production-environment}
+
+For production Workflows, debugging options include:
+
+- [Web UI](/web-ui)
+- [Temporal CLI](/cli)
+- [Replay](/develop/ruby/testing-suite#replay-test)
+- [Tracing](/develop/ruby/observability#tracing)
+- [Logging](/develop/ruby/observability#logging)
+
+You can analyze Worker performance using:
+
+- [Metrics](/develop/ruby/observability#metrics)
+- [Worker performance guide](/develop/worker-performance)
+
+To monitor Server performance:
+
+- Use [Cloud metrics](/cloud/metrics/) if you're on Temporal Cloud
+- Or [self-hosted Server metrics](/self-hosted-guide/production-checklist#scaling-and-metrics) if running your own deployment
+
+---
+
+## Durable Timers - Ruby SDK
+
+This page describes how to set a Durable Timer using the Temporal Ruby SDK.
+
+A [Durable Timer](/workflow-execution/timers-delays) is used to pause the execution of a Workflow for a specified duration.
+A Workflow can sleep for days or even months.
+Timers are persisted, so even if your Worker or Temporal Service is down when the time period completes, as soon as your Worker and Temporal Service are back up, the Durable Timer call will resolve and your code will continue executing.
+
+Sleeping is a resource-light operation: it does not tie up the process, and you can run millions of Timers off a single Worker.
+
+To add a Timer in a Workflow, use `Temporalio::Workflow.sleep`.
+_Technically_ `Kernel#sleep` works, but the workflow form allows one to set a summary to view in the UI.
+
+```ruby
+# Sleep for 72 hours
+Temporalio::Workflow.sleep(72 * 60 * 60, summary: 'my timer')
+```
+
+There is also a `Temporalio::Workflow.timeout` method that accepts a block and works like standard Ruby
+`Timeout.timeout` if needing the ability to timeout a set of code.
+
+---
+
+## Failure detection - Ruby SDK
+
+This page shows how to do the following:
+
+- [Workflow timeouts](#workflow-timeouts)
+- [Workflow retries](#workflow-retries)
+- [Activity timeouts](#activity-timeouts)
+- [Activity Retry Policy](#activity-retries)
+- [Heartbeat an Activity](#activity-heartbeats)
+- [Heartbeat Timeout](#heartbeat-timeout)
+
+## Workflow timeouts {#workflow-timeouts}
+
+Each Workflow timeout controls the maximum duration of a different aspect of a Workflow Execution.
+
+- **[Workflow Execution Timeout](/encyclopedia/detecting-workflow-failures#workflow-execution-timeout)**: Limits how long the full Workflow Execution can run.
+- **[Workflow Run Timeout](/encyclopedia/detecting-workflow-failures#workflow-run-timeout)**: Limits the duration of an individual run of a Workflow Execution.
+- **[Workflow Task Timeout](/encyclopedia/detecting-workflow-failures#workflow-task-timeout)**: Limits the time allowed for a Worker to process a Workflow Task.
+
+Set these values as keyword parameter options when starting a Workflow.
+
+```ruby
+result = my_client.execute_workflow(
+  MyWorkflow, 'some-input',
+  id: 'my-workflow-id', task_queue: 'my-task-queue',
+  execution_timeout: 5 * 60
+)
+```
+
+### Workflow retries {#workflow-retries}
+
+A Retry Policy can work in cooperation with the timeouts to provide fine controls to optimize the execution experience.
+
+Use a [Retry Policy](/encyclopedia/retry-policies) to automatically retry Workflow Executions on failure.
+Workflow Executions do not retry by default.
+
+Workflow Executions do not retry by default, and Retry Policies should be used with Workflow Executions only in certain situations.
+
+The `retry_policy` can be set when calling `start_workflow` or `execute_workflow`.
+
+```ruby
+result = my_client.execute_workflow(
+  MyWorkflow, 'some-input',
+  id: 'my-workflow-id', task_queue: 'my-task-queue',
+  retry_policy: Temporalio::RetryPolicy.new(max_interval: 10)
+)
+```
+
+## Activity timeouts {#activity-timeouts}
+
+Each Activity Timeout controls a different aspect of how long an Activity Execution can take:
+
+- **[Schedule-To-Close Timeout](/encyclopedia/detecting-activity-failures#schedule-to-close-timeout)**
+- **[Start-To-Close Timeout](/encyclopedia/detecting-activity-failures#start-to-close-timeout)**
+- **[Schedule-To-Start Timeout](/encyclopedia/detecting-activity-failures#schedule-to-start-timeout)**
+
+At least one of `start_to_close_timeout` or `schedule_to_close_timeout` is required.
+
+```ruby
+Temporalio::Workflow.execute_activity(
+  MyActivity,
+  { greeting: 'Hello', name: },
+  start_to_close_timeout: 5 * 60
+)
+```
+
+### Activity Retry Policy {#activity-retries}
+
+By default, Activities use a system Retry Policy.
+You can override it by specifying a custom Retry Policy.
+
+To create an Activity Retry Policy in Ruby, set the `retry_policy` parameter when executing an activity.
+
+```ruby
+Temporalio::Workflow.execute_activity(
+  MyActivity,
+  { greeting: 'Hello', name: },
+  start_to_close_timeout: 5 * 60,
+  retry_policy: Temporalio::RetryPolicy.new(max_interval: 10)
+)
+```
+
+### Override the retry interval with `next_retry_delay` {#next-retry-delay}
+
+If you raise an application-level error, you can override the Retry Policy's delay by specifying a new delay.
+
+```ruby
+raise Temporalio::ApplicationError.new(
+  'Some error',
+  type: 'SomeErrorType',
+  next_retry_delay: 3 * Temporalio::Activity::Context.current.info.attempt
+)
+```
+
+## Heartbeat an Activity {#activity-heartbeats}
+
+A Heartbeat is a periodic signal from the Worker to the Temporal Service indicating the Activity is still alive and making progress.
+
+- Heartbeats are used to detect Worker failure.
+- Cancellations are delivered via Heartbeats.
+- Heartbeats may contain custom progress details.
+
+```ruby
+class MyActivity < Temporalio::Activity::Definition
+  def execute
+    # This is a naive loop simulating work, but similar heartbeat logic
+    # applies to other scenarios as well
+    loop do
+      # Send heartbeat
+      Temporalio::Activity::Context.current.heartbeat
+      # Sleep before heartbeating again
+      sleep(3)
+    end
+  end
+end
+```
+
+### Heartbeat Timeout {#heartbeat-timeout}
+
+The Heartbeat Timeout sets the maximum duration between Heartbeats before the Temporal Service considers the Activity failed.
+
+```ruby
+Temporalio::Workflow.execute_activity(
+  MyActivity,
+  { greeting: 'Hello', name: },
+  start_to_close_timeout: 5 * 60,
+  heartbeat_timeout: 5
+)
+```
+
+---
+
+## Ruby SDK developer guide
+
+<!-- Ruby SDK feature guidance landing page-->
+
+![Ruby SDK Banner](/img/assets/banner-ruby-temporal.png)
+
+:::tip Support, stability, and dependency info
+
+The Temporal Ruby SDK is currently in [Public Preview](/evaluate/development-production-features/release-stages#public-preview).
+
+:::
+
+:::info Ruby SDK RESOURCES
+Build Temporal Applications with the Ruby SDK.
+
+**Temporal Ruby Technical Resources:**
+
+- [Ruby SDK Quickstart - Setup Guide](https://docs.temporal.io/develop/ruby/set-up-local-ruby)
+- [Ruby SDK Code Samples](https://github.com/temporalio/samples-ruby)
+- [Ruby API Documentation](https://ruby.temporal.io/)
+- [Ruby SDK GitHub](https://github.com/temporalio/sdk-ruby)
+
+**Get Connected with the Temporal Ruby Community:**
+
+- [Temporal Ruby Community Slack](https://temporalio.slack.com/archives/C052K5QFBNW)
+- [Ruby SDK Forum](https://community.temporal.io/tag/ruby-sdk)
+
+:::
+
+## [Core Application](/develop/ruby/core-application)
+
+Use the essential components of a Temporal Application (Workflows, Activities, and Workers) to build and run a Temporal application.
+
+- [Develop a basic Workflow Definition](/develop/ruby/core-application#develop-workflow): Workflows are the fundamental unit of a Temporal Application, and it all starts with the development of a Workflow Definition.
+- [Develop a basic Activity Definition](/develop/ruby/core-application#develop-activity): One of the primary things that Workflows do is orchestrate the execution of Activities.
+- [Start an Activity from a Workflow](/develop/ruby/core-application#activity-execution): Calls to spawn Activity Executions are written within a Workflow Definition.
+- [Run a Worker Process](/develop/ruby/core-application#run-worker-process): The Worker Process is where Workflow Functions and Activity Functions are executed.
+- [Set a Dynamic Workflow](/develop/ruby/core-application#set-a-dynamic-workflow): Set a Workflow that can be invoked dynamically at runtime.
+- [Set a Dynamic Activity](/develop/ruby/core-application#set-a-dynamic-activity): Set an Activity that can be invoked dynamically at runtime.
+
+## [Temporal Client](/develop/ruby/temporal-client)
+
+Connect to a Temporal Service and start a Workflow Execution.
+
+- [Create a Temporal Client](/develop/ruby/temporal-client#create-a-client): Learn to instantiate and configure a client to interact with the Temporal Service.
+- [Connect to Temporal Cloud](/develop/ruby/temporal-client#connect-to-temporal-cloud): Securely connect to the Temporal Cloud for a fully managed service.
+- [Start a Workflow](/develop/ruby/temporal-client#start-workflow): Initiate Workflows seamlessly via the Ruby SDK.
+- [Get Workflow results](/develop/ruby/temporal-client#get-workflow-results): Retrieve and process the results of your Workflows efficiently.
+
+## [Testing](/develop/ruby/testing-suite)
+
+Set up the testing suite and test Workflows and Activities.
+
+- [Test frameworks](/develop/ruby/testing-suite#test-frameworks): Testing provides a framework to facilitate Workflow and integration testing.
+- [Testing Workflows](/develop/ruby/testing-suite#testing-workflows): Ensure the functionality and reliability of your Workflows.
+- [Testing Activities](/develop/ruby/testing-suite#test-activities): Validate the execution and outcomes of your Activities.
+- [Replay test](/develop/ruby/testing-suite#replay-test): Replay recreates the exact state of a Workflow Execution.
+
+## [Failure detection](/develop/ruby/failure-detection)
+
+Explore how your application can detect failures using timeouts and automatically attempt to mitigate them with retries.
+
+- [Workflow timeouts](/develop/ruby/failure-detection#workflow-timeouts): Each Workflow timeout controls the maximum duration of a different aspect of a Workflow Execution.
+- [Workflow retries](/develop/ruby/failure-detection#workflow-retries): A Workflow Retry Policy can be used to retry a Workflow Execution in the event of a failure.
+- [Activity timeouts](/develop/ruby/failure-detection#activity-timeouts): Each Activity timeout controls the maximum duration of a different aspect of an Activity Execution.
+- [Set an Activity Retry Policy](/develop/ruby/failure-detection#activity-retries): Define retry logic for Activities to handle failures.
+- [Heartbeat an Activity](/develop/ruby/failure-detection#activity-heartbeats): An Activity Heartbeat is a ping from the Worker that is executing the Activity to the Temporal Service.
+- [Heartbeat Timeout](/develop/ruby/failure-detection#heartbeat-timeout): A Heartbeat Timeout works in conjunction with Activity Heartbeats.
+
+## [Workflow message passing](/develop/go/message-passing)
+
+Send messages to and read the state of Workflow Executions.
+
+### Signals
+
+- [Define Signal](/develop/ruby/message-passing#signals): A Signal is a message sent to a running Workflow Execution.
+- [Send a Signal from a Temporal Client](/develop/ruby/message-passing#send-signal-from-client): Send a Signal to a Workflow from a Temporal Client.
+- [Send a Signal from a Workflow](/develop/ruby/message-passing#send-signal-from-workflow): Send a Signal to another Workflow from within a Workflow, this would also be called an External Signal.
+- [Signal-With-Start](/develop/ruby/message-passing#signal-with-start): Start a Workflow and send it a Signal in a single operation used from the Client.
+- [Dynamic Handler](/develop/ruby/message-passing#dynamic-handler): Dynamic Handlers provide flexibility to handle cases where the names of Workflows, Activities, Signals, or Queries aren't known at run time.
+- [Set a Dynamic Signal](/develop/ruby/message-passing#set-a-dynamic-signal): A Dynamic Signal in Temporal is a Signal that is invoked dynamically at runtime if no other Signal with the same input is registered.
+
+### Queries
+
+- [Define a Query](/develop/ruby/message-passing#queries): A Query is a synchronous operation that is used to get the state of a Workflow Execution.
+- [Send Queries](/develop/ruby/message-passing#send-query): Queries are sent from the Temporal Client.
+- [Set a Dynamic Query](/develop/ruby/message-passing#set-a-dynamic-signal): A Dynamic Query in Temporal is a Query that is invoked dynamically at runtime if no other Query with the same name is registered.
+
+### Updates
+
+- [Define an Update](/develop/ruby/message-passing#updates): An Update is an operation that can mutate the state of a Workflow Execution and return a response.
+- [Send an Update](/develop/ruby/message-passing#send-update-from-client): An Update is sent from the Temporal Client.
+
+## [Interrupt a Workflow](/develop/ruby/interrupt-workflow)
+
+Interrupt a Workflow Execution with a Cancel or Terminate action.
+
+- [Cancel a Workflow](/develop/ruby/interrupt-workflow#cancellation): Interrupt a Workflow Execution and its Activities through Workflow cancellation.
+- [Terminate a Workflow](/develop/ruby/interrupt-workflow#termination): Interrupt a Workflow Execution and its Activities through Workflow termination.
+
+## [Asynchronous Activity completion](/develop/ruby/asynchronous-activity)
+
+Complete Activities asynchronously.
+
+- [Asynchronous Activity](/develop/ruby/asynchronous-activity): Asynchronous Activity completion enables the Activity Function to return without the Activity Execution completing.
+
+## [Versioning](/develop/ruby/versioning)
+
+Change Workflow Definitions without causing non-deterministic behavior in running Workflows.
+
+- [Use the Ruby SDK Patching API](/develop/ruby/versioning#ruby-sdk-patching-api): Patching Workflows using the Ruby SDK.
+
+## [Observability](/develop/ruby/observability)
+
+Configure and use the Temporal Observability APIs.
+
+- [Emit Metrics](/develop/ruby/observability#metrics): Each Temporal SDK is capable of emitting an optional set of metrics from either the Client or the Worker process.
+- [Set up Tracing](/develop/ruby/observability#tracing): Explains how the Go SDK supports tracing and custom context propagation.
+- [Log from a Workflow](/develop/ruby/observability#logging): Send logs and errors to a logging service, so that when things go wrong, you can see what happened.
+- [Use Visibility APIs](/develop/ruby/observability#visibility): The term Visibility, within the Temporal Platform, refers to the subsystems and APIs that enable an operator to view Workflow Executions that currently exist within a Terminal Service.
+
+## [Debugging](/develop/ruby/debugging)
+
+Explore various ways to debug your application.
+
+- [Debug in a development environment](/develop/ruby/debugging#debug-in-a-development-environment): In addition to the normal development tools of logging and a debugger, you can also see what’s happening in your Workflow by using the Web UI and the Temporal CLI.
+- [Debug in a development production](/develop/ruby/debugging#debug-in-a-production-environment): Debug production Workflows using the Web UI, the Temporal CLI, Replays, Tracing, or Logging.
+
+## [Schedules](/develop/ruby/schedules)
+
+Run Workflows on a schedule and delay the start of a Workflow.
+
+- [Schedule a Workflow](/develop/ruby/schedules#schedule-a-workflow)
+  - [Create a Scheduled Workflow](/develop/ruby/schedules#create-a-workflow): Create a new schedule for a scheduled Workflow.
+  - [Backfill a Scheduled Workflow](/develop/ruby/schedules#backfill-a-scheduled-workflow): Backfills a past time range of actions for a scheduled Workflow.
+  - [Delete a Scheduled Workflow](/develop/ruby/schedules#delete-a-scheduled-workflow): Deletes a schedule for a scheduled Workflow.
+  - [Describe a Scheduled Workflow](/develop/ruby/schedules#describe-a-scheduled-workflow): Get schedule configuration and current state for a scheduled Workflow.
+  - [List a Scheduled Workflow](/develop/ruby/schedules#list-a-scheduled-workflow): List a schedule for a scheduled Workflow.
+  - [Pause a Scheduled Workflow](/develop/ruby/schedules#pause-a-scheduled-workflow): Pause a schedule for a scheduled Workflow.
+  - [Trigger a Scheduled Workflow](/develop/ruby/schedules#trigger-a-scheduled-workflow): Triggers an immediate action for a scheduled Workflow.
+  - [Update a Scheduled Workflow](/develop/ruby/schedules#update-a-scheduled-workflow): Updates a schedule with a new definition for a scheduled Workflow.
+- [Use Start Delay](/develop/ruby/schedules#start-delay): Start delay functionality if you need to delay the execution of the Workflow without the need for regular launches.
+
+## [Data encryption](/develop/ruby/converters-and-encryption)
+
+Use compression, encryption, and other data handling by implementing custom converters and codecs.
+
+- [Use a custom Payload Codec](/develop/ruby/converters-and-encryption#custom-payload-codec): Create a custom PayloadCodec implementation and define your encryption/compression and decryption/decompression logic.
+- [Use a custom Payload Converter](/develop/ruby/converters-and-encryption#custom-payload-converter): A custom data converter can be set via the `DataConverter` option when creating a client.
+
+## [Durable Timers](/develop/ruby/durable-timers)
+
+Use Timers to make a Workflow Execution pause or "sleep" for seconds, minutes, days, months, or years.
+
+- [Sleep](/develop/ruby/durable-timers): A Timer lets a Workflow sleep for a fixed time period.
+
+## [Child Workflows](/develop/ruby/child-workflows)
+
+Explore how to spawn a Child Workflow Execution and handle Child Workflow Events.
+
+- [Start a Child Workflow Execution](/develop/ruby/child-workflows): A Child Workflow Execution is a Workflow Execution that is scheduled from within another Workflow using a Child Workflow API.
+- [Set a Parent Close Policy](/develop/ruby/child-workflows#parent-close-policy): A Parent Close Policy determines what happens to a Child Workflow Execution if its Parent changes to a Closed status.
+
+## [Continue-As-New](/develop/ruby/continue-as-new)
+
+Continue the Workflow Execution with a new Workflow Execution using the same Workflow ID.
+
+- [Continue-As-New](/develop/ruby/continue-as-new): Continue-As-New enables a Workflow Execution to close successfully and create a new Workflow Execution in a single atomic operation if the number of Events in the Event History is becoming too large.
+
+---
+
+## Interrupt a Workflow - Ruby SDK
+
+This page shows how to interrupt a Workflow Execution.
+
+You can interrupt a Workflow Execution in one of the following ways:
+
+- [Cancel](#cancellation): Canceling a Workflow provides a graceful way to stop Workflow Execution.
+- [Terminate](#termination): Terminating a Workflow forcefully stops Workflow Execution.
+
+Terminating a Workflow forcefully stops Workflow Execution.
+This action resembles killing a process.
+
+- The system records a `WorkflowExecutionTerminated` event in the Workflow History.
+- The termination forcefully and immediately stops the Workflow Execution.
+- The Workflow code gets no chance to handle termination.
+- A Workflow Task doesn't get scheduled.
+
+In most cases, canceling is preferable because it allows the Workflow to finish gracefully.
+Terminate only if the Workflow is stuck and cannot be canceled normally.
+
+## Cancellation {#cancellation}
+
+To give a Workflow and its Activities the ability to be cancelled, do the following:
+
+- Handle a Cancellation request within a Workflow.
+- Set Activity Heartbeat Timeouts.
+- Listen for and handle a Cancellation request within an Activity.
+- Send a Cancellation request from a Temporal Client.
+
+## Handle Cancellation in Workflow {#handle-cancellation-in-workflow}
+
+Workflow Definitions can be written to respond to cancellation requests.
+It is common for an Activity to be run on Cancellation to perform cleanup.
+
+Cancellation Requests on Workflows cancel the `Temporalio::Workflow.cancellation` which is a `Temporalio::Cancellation` that effectively serves as a cancellation token.
+This is the cancellation that is implicitly used for all calls within the workflow as well (e.g. Timers, Activities, etc) and therefore cancellation is propagated to them to be handled and bubble out.
+
+```ruby
+class MyWorkflow < Temporalio::Workflow::Definition
+  def execute
+    # Whether this workflow waits on the activity to handle the cancellation or not is
+    # dependent upon the cancellation_type parameter. We leave the default here which
+    # sends the cancellation but does not wait on it to be handled.
+    Temporalio::Workflow.execute_activity(MyActivity, start_to_close_timeout: 100)
+  rescue Temporalio::Error => e
+    # For this sample, we only want to execute cleanup when it's a cancellation
+    raise unless Temporalio::Error.canceled?(e)
+
+    # Call a cleanup activity. We have to do this with a new/detached cancellation
+    # because the default workflow-level one is already canceled at this point.
+    Temporalio::Workflow.execute_activity(
+      MyCleanupActivity,
+      start_to_close_timeout: 100,
+      cancellation: Temporalio::Cancellation.new
+    )
+
+    # Re-raise the original exception
+    raise
+  end
+end
+```
+
+## Handle Cancellation in an Activity {#handle-cancellation-in-an-activity}
+
+Ensure that the Activity is [Heartbeating](/develop/ruby/failure-detection#activity-heartbeats) to receive the Cancellation request and stop execution.
+Also make sure that the [Heartbeat Timeout](/develop/ruby/failure-detection#heartbeat-timeout) is set on the Activity Options when calling from the Workflow.
+An Activity Cancellation Request raises a `Temporalio::Error::CanceledError` in the Activity.
+
+```ruby
+class MyActivity < Temporalio::Activity::Definition
+  def execute
+    # This is a naive loop simulating work, but similar heartbeat/cancellation logic
+    # applies to other scenarios as well
+    loop do
+      # Send heartbeat
+      Temporalio::Activity::Context.current.heartbeat
+      # Sleep before heartbeating again
+      sleep(3)
+    end
+  rescue Temporalio::Error::CanceledError
+    raise 'Canceled!'
+  end
+end
+```
+
+## Request Cancellation {#request-cancellation}
+
+Use `cancel` on the `WorkflowHandle` to cancel a Workflow Execution.
+
+```ruby
+# Get a workflow handle by its workflow ID. This could be made specific to a run by
+# passing run ID. This could also just be a handle that is returned from
+# start_workflow instead.
+handle = my_client.workflow_handle('my-workflow-id')
+
+# Send cancellation. This returns when cancellation is received by the server. Wait on
+# the handle's result to wait for cancellation to be applied.
+handle.cancel
+```
+
+By default, Activities are automatically cancelled when the Workflow is cancelled since the workflow cancellation is used by activities by default.
+To issue a cancellation explicitly, a new cancellation token can be created.
+
+```ruby
+class MyWorkflow < Temporalio::Workflow::Definition
+  def execute
+    # Create a new cancellation linked to the workflow one, so that it inherits
+    # cancellation that comes from the workflow. Users can choose to make it
+    # completely detached by not providing a parent.
+    cancellation, cancel_proc = Temporalio::Cancellation.new(
+      Temporalio::Workflow.cancellation
+    )
+
+    # Start the activity in the background. Whether this workflow waits on the activity
+    # to handle the cancellation or not is dependent upon the cancellation_type
+    # parameter. We leave the default here which sends the cancellation but does not wait
+    # on it to be handled.
+    future = Temporalio::Future.new do
+      Temporalio::Workflow.execute_activity(
+        MyActivity,
+        start_to_close_timeout: 100,
+        cancellation:
+      )
+    end
+
+    # Wait 5 minutes, then cancel it
+    Temporalio::Workflow.sleep(5 * 60)
+    cancel_proc.call
+
+    # Wait on the activity which will raise an activity error with a cause of
+    # cancellation which will fail the workflow
+    future.wait
+  end
+end
+```
+
+## Termination {#termination}
+
+To Terminate a Workflow Execution in Ruby, use the `terminate` method on the Workflow handle.
+
+```ruby
+# Get a workflow handle by its workflow ID. This could be made specific to a run by
+# passing run ID. This could also just be a handle that is returned from
+# start_workflow instead.
+handle = my_client.workflow_handle('my-workflow-id')
+
+# Terminate
+handle.terminate
+```
+
+Workflow Executions can also be Terminated directly from the WebUI. In this case, a custom note can be logged from the UI when that happens.
+
+---
+
+## Workflow message passing - Ruby SDK
+
+A Workflow can act like a stateful service that receives messages: Queries, Signals, and Updates.
+These messages interact with the Workflow via handler methods defined in the Workflow code.
+Clients use messages to read Workflow state or change its behavior.
+
+See [Workflow message passing](/encyclopedia/workflow-message-passing) for a general overview.
+
+## Write message handlers {#writing-message-handlers}
+
+:::info
+The code that follows is part of a [working solution](https://github.com/temporalio/samples-ruby/tree/main/message_passing_simple).
+:::
+
+Follow these guidelines when writing your message handlers:
+
+- Message handlers are defined as methods on the Workflow class, decorated by calling one of three class methods before defining the handler method: `workflow_query`, `workflow_signal`, and `workflow_update`.
+- These also implicitly create class-methods with the same name as the instance methods for use by callers.
+- The parameters and return values of handlers and the main Workflow function must be [serializable](/dataconversion).
+- Prefer single hash/object input parameter to multiple input parameters.
+  Hash/object parameters allow you to add fields without changing the calling signature.
+
+### Query handlers {#queries}
+
+A [Query](/sending-messages#sending-queries) is a synchronous operation that retrieves state from a Workflow Execution.
+Define as a method:
+
+```ruby
+class GreetingWorkflow < Temporalio::Workflow::Definition
+  # ...
+
+  workflow_query
+  def languages(input)
+    # A query handler returns a value: it can inspect but must not mutate the Workflow state.
+    if input['include_unsupported']
+      CallGreetingService.greetings.keys.sort
+    else
+      @greetings.keys.sort
+    end
+  end
+
+  # ...
+end
+```
+
+Or as an attribute reader:
+
+```ruby
+class GreetingWorkflow < Temporalio::Workflow::Definition
+  # This is the equivalent of:
+  #    workflow_query
+  #    def language
+  #      @language
+  #    end
+  workflow_query_attr_reader :language
+
+  # ...
+end
+```
+
+- The `workflow_query` class method can accept arguments.
+  See the API reference docs: [`workflow_query`](https://ruby.temporal.io/Temporalio/Workflow/Definition.html#workflow_query-class_method).
+- A Query handler must not modify Workflow state.
+- You can't perform async blocking operations such as executing an Activity in a Query handler.
+
+### Signal handlers {#signals}
+
+A [Signal](/sending-messages#sending-signals) is an asynchronous message sent to a running Workflow Execution to change its state and control its flow:
+
+```ruby
+class GreetingWorkflow < Temporalio::Workflow::Definition
+  # ...
+
+  workflow_signal
+  def approve(input)
+    # A signal handler mutates the workflow state but cannot return a value.
+    @approved_for_release = true
+    @approver_name = input['name']
+  end
+
+  # ...
+end
+```
+
+- The `workflow_signal` class method can accept arguments.
+  Refer to the API docs: [`workflow_signal`](https://ruby.temporal.io/Temporalio/Workflow/Definition.html#workflow_signal-class_method).
+
+- The handler should not return a value.
+  The response is sent immediately from the server, without waiting for the Workflow to process the Signal.
+
+- Signal (and Update) handlers can be asynchronous and blocking.
+  This allows you to use Activities, Child Workflows, durable Timers, wait conditions, and more.
+  See [Async handlers](#async-handlers) and [Workflow message passing](/encyclopedia/workflow-message-passing) for guidelines on safely using async Signal and Update handlers.
+
+### Update handlers and validators {#updates}
+
+An [Update](/sending-messages#sending-updates) is a trackable synchronous request sent to a running Workflow Execution.
+It can change the Workflow state, control its flow, and return a result.
+The sender must wait until the Worker accepts or rejects the Update.
+The sender may wait further to receive a returned value or an exception if something goes wrong:
+
+```ruby
+class GreetingWorkflow < Temporalio::Workflow::Definition
+  # ...
+
+  workflow_update
+  def set_language(new_language) # rubocop:disable Naming/AccessorMethodName
+    # An update handler can mutate the workflow state and return a value.
+    prev = @language.to_sym
+    @language = new_language.to_sym
+    prev
+  end
+
+  workflow_update_validator(:set_language)
+  def validate_set_language(new_language)
+    # In an update validator you raise any exception to reject the update.
+    raise "#{new_language} is not supported" unless @greetings.include?(new_language.to_sym)
+  end
+
+  # ...
+end
+```
+
+- The `workflow_update` class method can take arguments as described in the API reference docs for [`workflow_update`](https://ruby.temporal.io/Temporalio/Workflow/Definition.html#workflow_update-class_method).
+
+- About validators:
+  - Use validators to reject an Update before it is written to History.
+    Validators are always optional.
+    If you don't need to reject Updates, you can skip them.
+  - Define an Update validator with the [`workflow_update_validator`](https://ruby.temporal.io/Temporalio/Workflow/Definition.html#workflow_update-class_method) class method invoked before defining the method.
+    The first parameter when declaring the validator is the name of the Update handler method.
+    The validator must accept the same argument types as the handler and should not return a value.
+
+- Accepting and rejecting Updates with validators:
+  - To reject an Update, raise an exception of any type in the validator.
+  - Without a validator, Updates are always accepted.
+- Validators and Event History:
+  - The `WorkflowExecutionUpdateAccepted` event is written into the History whether the acceptance was automatic or programmatic.
+  - When a Validator raises an error, the Update is rejected, the Update is not run, and `WorkflowExecutionUpdateAccepted` _won't_ be added to the Event History.
+    The caller receives an "Update failed" error.
+
+- Use [`current_update_info`](https://ruby.temporal.io/Temporalio/Workflow.html#current_update_info-class_method) to obtain information about the current Update.
+  This includes the Update ID, which can be useful for deduplication when using Continue-As-New: see [Ensuring your messages are processed exactly once](/handling-messages#exactly-once-message-processing).
+- Update (and Signal) handlers can be asynchronous and blocking.
+  This allows you to use Activities, Child Workflows, durable Timers, wait conditions, and more.
+  See [Async handlers](#async-handlers) and [Workflow message passing](/encyclopedia/workflow-message-passing) for guidelines on safely using async Update and Signal handlers.
+
+## Send messages {#send-messages}
+
+To send Queries, Signals, or Updates you call methods on a [`WorkflowHandle`](https://ruby.temporal.io/Temporalio/Client/WorkflowHandle.html) instance.
+To obtain the Workflow handle, you can:
+
+- Use [`Client#start_workflow`](https://ruby.temporal.io/Temporalio/Client.html#start_workflow-instance_method) to start a Workflow and return its handle.
+- Use the [`Client#workflow_handle`](https://ruby.temporal.io/Temporalio/Client.html#workflow_handle-instance_method) method to retrieve a Workflow handle by its Workflow Id.
+
+For example:
+
+```ruby
+client = Temporalio::Client.connect('localhost:7233', 'default')
+handle = client.start_workflow(
+  MessagePassingSimple::GreetingWorkflow,
+  id: 'message-passing-simple-sample-workflow-id',
+  task_queue: 'message-passing-simple-sample'
+)
+```
+
+To check the argument types required when sending messages -- and the return type for Queries and Updates -- refer to the corresponding handler method in the Workflow Definition.
+
+:::warning Using Continue-as-New and Updates
+
+- Temporal _does not_ support Continue-as-New functionality within Update handlers.
+- Complete all handlers _before_ using Continue-as-New.
+- Use Continue-as-New from your main Workflow Definition method, just as you would complete or fail a Workflow Execution.
+
+:::
+
+### Send a Query {#send-query}
+
+Call a Query method with [`WorkflowHandle#query`](https://ruby.temporal.io/Temporalio/Client/WorkflowHandle.html#query-instance_method):
+
+```ruby
+supported_languages = handle.query(MessagePassingSimple::GreetingWorkflow.languages, { include_unsupported: false })
+```
+
+- Sending a Query doesn’t add events to a Workflow's Event History.
+
+- You can send Queries to closed Workflow Executions within a Namespace's Workflow retention period.
+  This includes Workflows that have completed, failed, or timed out.
+  Querying terminated Workflows is not safe and, therefore, not supported.
+
+- A Worker must be online and polling the Task Queue to process a Query.
+
+### Send a Signal {#send-signal}
+
+You can send a Signal to a Workflow Execution from a Temporal Client or from another Workflow Execution.
+However, you can only send Signals to Workflow Executions that haven’t closed.
+
+#### From a Client {#send-signal-from-client}
+
+Use [`WorkflowHandle#signal`](https://ruby.temporal.io/Temporalio/Client/WorkflowHandle.html#signal-instance_method) from Client code to send a Signal:
+
+```ruby
+handle.signal(MessagePassingSimple::GreetingWorkflow.approve, { name: 'John Q. Approver' })
+```
+
+- The call returns when the server accepts the Signal; it does _not_ wait for the Signal to be delivered to the Workflow Execution.
+
+- The [WorkflowExecutionSignaled](/references/events#workflowexecutionsignaled) Event appears in the Workflow's Event History.
+
+#### From a Workflow {#send-signal-from-workflow}
+
+A Workflow can send a Signal to another Workflow, known as an _External Signal_.
+In this case you need to obtain a Workflow handle for the external Workflow.
+Use `Temporalio::Workflow.external_workflow_handle`, passing a running Workflow Id, to retrieve a Workflow handle:
+
+```ruby
+class WorkflowB < Temporalio::Workflow::Definition
+  def execute
+    handle = Temporalio::Workflow.external_workflow_handle('workflow-a-id')
+    handle.signal(WorkflowA.some_signal, 'some signal arg')
+  end
+end
+```
+
+When an External Signal is sent:
+
+- A [SignalExternalWorkflowExecutionInitiated](/references/events#signalexternalworkflowexecutioninitiated) Event appears in the sender's Event History.
+- A [WorkflowExecutionSignaled](/references/events#workflowexecutionsignaled) Event appears in the recipient's Event History.
+
+#### Signal-With-Start {#signal-with-start}
+
+Signal-With-Start allows a Client to send a Signal to a Workflow Execution, starting the Execution if it is not already running.
+If there's a Workflow running with the given Workflow Id, it will be signaled.
+If there isn't, a new Workflow will be started and immediately signaled.
+
+To use Signal-With-Start, call `signal_with_start_workflow` with a `WithStartWorkflowOperation`:
+
+```ruby
+client = Temporalio::Client.connect('localhost:7233', 'default')
+
+# Create start-workflow operation for use with signal-with-start
+start_workflow_operation = Temporalio::Client::WithStartWorkflowOperation.new(
+  MyWorkflow, 'my-workflow-input',
+  id: 'my-workflow-id', task_queue: 'my-workflow-task-queue'
+)
+# Perform signal-with-start
+handle = client.signal_with_start_workflow(
+  MyWorkflow.my_signal, 'signal-input', start_workflow_operation:
+)
+```
+
+### Send an Update {#send-update-from-client}
+
+An Update is a synchronous, blocking call that can change Workflow state, control its flow, and return a result.
+
+A Client sending an Update must wait until the Server delivers the Update to a Worker.
+Workers must be available and responsive.
+If you need a response as soon as the Server receives the request, use a Signal instead.
+Also note that you can't send Updates to other Workflow Executions.
+
+- `WorkflowExecutionUpdateAccepted` is added to the Event History when the Worker confirms that the Update passed validation.
+- `WorkflowExecutionUpdateCompleted` is added to the Event History when the Worker confirms that the Update has finished.
+
+To send an Update to a Workflow Execution, you can:
+
+- Call the Update method with `execute_update` from the Workflow handle and wait for the Update to complete.
+  This code fetches an Update result:
+
+  ```ruby
+  prev_language = handle.execute_update(MessagePassingSimple::GreetingWorkflow.set_language, :chinese)
+  ```
+
+- 2. Use `start_update` to receive a handle as soon as the Update is accepted.
+     It returns a `WorkflowUpdateHandle`
+
+  - Use this `WorkflowUpdateHandle` later to fetch your results.
+  - Asynchronous Update handlers normally perform long-running async Activities.
+  - `start_update` only waits until the Worker has accepted or rejected the Update, not until all asynchronous operations are complete.
+
+  For example:
+
+  ```ruby
+  # Start an update and then wait for it to complete
+  update_handle = handle.start_update(
+    MessagePassingSimple::GreetingWorkflow.apply_language_with_lookup,
+    :arabic,
+    wait_for_stage: Temporalio::Client::WorkflowUpdateWaitStage::ACCEPTED
+  )
+  prev_language = update_handle.result
+  ```
+
+  For more details, see the "Async handlers" section.
+
+#### Update-With-Start {#update-with-start}
+
+:::tip Stability
+
+In [Public Preview](/evaluate/development-production-features/release-stages#public-preview) in Temporal Cloud.
+
+Minimum Temporal Server version [Temporal Server version 1.26](https://github.com/temporalio/temporal/releases/tag/v1.26.2)
+
+:::
+
+[Update-with-Start](/sending-messages#update-with-start) lets you [send an Update](/develop/ruby/message-passing#send-update-from-client) that checks whether an already-running Workflow with that ID exists:
+
+- If the Workflow exists, the Update is processed.
+- If the Workflow does not exist, a new Workflow Execution is started with the given ID, and the Update is processed before the main Workflow method starts to execute.
+
+Use `execute_update_with_start_workflow` to start the Update and wait for the result in one go.
+
+Alternatively, use `start_update_with_start_workflow` to start the Update and receive a `WorkflowUpdateHandle`, and then use `update_handle.result` to retrieve the result from the Update.
+
+These calls return once the requested Update wait stage has been reached, or when the request times out.
+
+- You will need to provide a `WithStartWorkflowOperation` to define the Workflow that will be started if necessary, and its arguments.
+- You must specify an [id_conflict_policy](/workflow-execution/workflowid-runid#workflow-id-conflict-policy) when creating the `WithStartWorkflowOperation`.
+  Note that a `WithStartWorkflowOperation` can only be used once.
+
+Here's an example:
+
+```ruby
+client = Temporalio::Client.connect('localhost:7233', 'default')
+
+# Create start-workflow operation for use with update-with-start
+start_workflow_operation = Temporalio::Client::WithStartWorkflowOperation.new(
+  MyWorkflow, 'my-workflow-input',
+  id: 'my-workflow-id', task_queue: 'my-workflow-task-queue',
+  id_conflict_policy: Temporalio::WorkflowIDConflictPolicy::USE_EXISTING
+)
+# Perform update-with-start and get update result
+update_result = client.execute_with_start_workflow(
+  MyWorkflow.my_update, 'update-input', start_workflow_operation:
+)
+# The workflow handle is on the start operation, here's an example of waiting on
+# workflow result
+workflow_result = start_workflow_operation.workflow_handle.result
+```
+
+## Message handler patterns {#message-handler-patterns}
+
+This section covers common write operations, such as Signal and Update handlers.
+It doesn't apply to pure read operations, like Queries or Update Validators.
+
+:::tip
+
+For additional information, see [Inject work into the main Workflow](/handling-messages#injecting-work-into-main-workflow) and [Ensuring your messages are processed exactly once](/handling-messages#exactly-once-message-processing).
+
+:::
+
+### Add async handlers {#async-handlers}
+
+Signal and Update handlers can be asynchronous as well as blocking.
+Using asynchronous calls allows you to wait for Activities, Child Workflows, Durable Timers, wait conditions, etc.
+This expands the possibilities for what can be done by a handler but it also means that handler executions and your main Workflow method are all running concurrently, with switching occurring between them at await calls.
+
+It's essential to understand the things that could go wrong in order to use asynchronous handlers safely.
+See [Workflow message passing](/encyclopedia/workflow-message-passing) for guidance on safe usage of async Signal and Update handlers, and the [Controlling handler concurrency](#control-handler-concurrency) and [Waiting for message handlers to finish](#wait-for-message-handlers) sections below.
+
+The following code is an Activity that simulates a network call to a remote service:
+
+```ruby
+class CallGreetingService < Temporalio::Activity::Definition
+  def execute(to_language)
+    # Simulate a network call
+    sleep(0.2)
+    # This intentionally returns nil on not found
+    CallGreetingService.greetings[to_language.to_sym]
+  end
+
+  def self.greetings
+    @greetings ||= {
+      arabic: 'مرحبا بالعالم',
+      chinese: '你好，世界',
+      english: 'Hello, world',
+      french: 'Bonjour, monde',
+      hindi: 'नमस्ते दुनिया',
+      portuguese: 'Olá mundo',
+      spanish: 'Hola mundo'
+    }
+  end
+end
+```
+
+The following code is a Workflow Update for asynchronous use of the preceding Activity:
+
+```ruby
+class GreetingWorkflow < Temporalio::Workflow::Definition
+  # ...
+
+  workflow_update
+  def apply_language_with_lookup(new_language)
+    # Call an activity if it's not there.
+    unless @greetings.include?(new_language.to_sym)
+      # We use a mutex so that, if this handler is executed multiple times, each execution
+      # can schedule the activity only when the previously scheduled activity has
+      # completed. This ensures that multiple calls to apply_language_with_lookup are
+      # processed in order.
+      @apply_language_mutex ||= Mutex.new
+      @apply_language_mutex.synchronize do
+        greeting = Temporalio::Workflow.execute_activity(
+          CallGreetingService, new_language, start_to_close_timeout: 10
+        )
+        # The requested language might not be supported by the remote service. If so, we
+        # raise ApplicationError, which will fail the update. The
+        # WorkflowExecutionUpdateAccepted event will still be added to history. (Update
+        # validators can be used to reject updates before any event is written to history,
+        # but they cannot be async, and so we cannot use an update validator for this
+        # purpose.)
+        raise Temporalio::Error::ApplicationError, "Greeting service does not support #{new_language}" unless greeting
+
+        @greetings[new_language.to_sym] = greeting
+      end
+    end
+    set_language(new_language)
+  end
+end
+```
+
+After updating the code for asynchronous calls, your Update handler can schedule an Activity and await the result.
+Although an async Signal handler can initiate similar network tasks, using an Update handler allows the Client to receive a result or error once the Activity completes.
+This lets your Client track the progress of asynchronous work performed by the Update's Activities, Child Workflows, etc.
+
+### Use wait conditions {#block-with-wait}
+
+Sometimes, async Signal or Update handlers need to meet certain conditions before they should continue.
+Using a wait condition with [`wait_condition`](https://ruby.temporal.io/Temporalio/Workflow.html#wait_condition-class_method) sets a function that prevents the code from proceeding until the condition is truthy.
+This is an important feature that helps you control your handler logic.
+
+Here are two important use cases for `wait_condition`:
+
+- Waiting in a handler until it is appropriate to continue.
+- Waiting in the main Workflow until all active handlers have finished.
+
+The condition state you're waiting for can be updated by and reflect any part of the Workflow code.
+This includes the main Workflow method, other handlers, or child coroutines spawned by the main Workflow method, and so forth.
+
+#### In handlers {#wait-in-handlers}
+
+Sometimes, async Signal or Update handlers need to meet certain conditions before they should continue.
+Using a wait condition with [`wait_condition`](https://ruby.temporal.io/Temporalio/Workflow.html#wait_condition-class_method) sets a function that prevents the code from proceeding until the condition is truthy.
+This is an important feature that helps you control your handler logic.
+
+Consider a `ready_for_update_to_execute` method that runs before your Update handler executes.
+The `wait_condition` call waits until your condition is met:
+
+```ruby
+workflow_update
+def my_update(my_update_input)
+  Temporalio::Workflow.wait_condition { ready_for_update_to_execute(my_update_input) }
+  # ...
+end
+```
+
+Remember: Handlers can execute before the main Workflow method starts.
+
+#### Before finishing the Workflow {#wait-for-message-handlers}
+
+Workflow wait conditions can ensure your handler completes before a Workflow finishes.
+When your Workflow uses async Signal or Update handlers, your main Workflow method can return or continue-as-new while a handler is still waiting on an async task, such as an Activity result.
+The Workflow completing may interrupt the handler before it finishes crucial work and cause Client errors when trying retrieve Update results.
+Use `Temporalio::Workflow.all_handlers_finished?` to address this problem and allow your Workflow to end smoothly:
+
+```ruby
+class MyWorkflow < Temporalio::Workflow::Definition
+  def execute
+    # ...
+
+    Temporalio::Workflow.wait_condition { Temporalio::Workflow.all_handlers_finished? }
+    'workflow-result'
+  end
+end
+```
+
+By default, your Worker will log a warning when you allow a Workflow Execution to finish with unfinished handler executions.
+You can silence these warnings on a per-handler basis by passing the `unfinished_policy` argument to the [`workflow_signal`](https://ruby.temporal.io/Temporalio/Workflow/Definition.html#workflow_signal-class_method) / [`workflow_update`](https://ruby.temporal.io/Temporalio/Workflow/Definition.html#workflow_update-class_method) class methods:
+
+```ruby
+workflow_update unfinished_policy: Temporalio::Workflow::HandlerUnfinishedPolicy::ABANDON
+def my_update
+  # ...
+```
+
+See [Finishing handlers before the Workflow completes](/handling-messages#finishing-message-handlers) for more information.
+
+### Use workflow_init to access input early
+
+The `workflow_init` class method above `initialize` gives it access to [Workflow input](/handling-messages#workflow-initializers).
+When you use the `workflow_init` on your constructor, you give the constructor the same Workflow parameters as your `execute` method.
+The SDK will then ensure that your constructor receives the Workflow input arguments that the [Client sent](/develop/ruby/temporal-client#start-workflow).
+The Workflow input arguments are also passed to your `execute` method -- that always happens, whether or not you use the `workflow_init` class method above `initialize`.
+
+Here's an example.
+The constructor and `execute` must have the same parameters with the same types:
+
+```ruby
+class WorkflowInitWorkflow < Temporalio::Workflow::Definition
+  workflow_init
+  def initialize(input)
+    @name_with_title = "Sir #{input['name']}"
+  end
+
+  def execute(input)
+    Temporalio::Workflow.wait_condition { @title_has_been_checked }
+    "Hello, #{@name_with_title}"
+  end
+
+  workflow_update
+  def check_title_validity
+    # The handler is now guaranteed to see some workflow input since it was
+    # processed by the constructor
+    valid = Temporalio::Workflow.execute_activity(
+      CheckTitleValidityActivity,
+      @name_with_title,
+      start_to_close_timeout: 100
+    )
+    @title_has_been_checked = true
+    valid
+  end
+end
+```
+
+### Use locks to prevent concurrent handler execution {#control-handler-concurrency}
+
+Concurrent processes can interact in unpredictable ways.
+Incorrectly written [concurrent message-passing](/handling-messages#message-handler-concurrency) code may not work correctly when multiple handler instances run simultaneously.
+Here's an example of a pathological case:
+
+```ruby
+class MyWorkflow < Temporalio::Workflow::Definition
+  # ...
+
+  workflow_signal
+  def bad_handler
+    data = Temporalio::Workflow.execute_activity(
+      FetchDataActivity,
+      start_to_close_timeout: 100
+    )
+    @x = data['x']
+    # 🐛🐛 Bug!! If multiple instances of this handler are executing concurrently, then
+    # there may be times when the Workflow has @x from one Activity execution and @y
+    # from another.
+    Temporalio::Workflow.sleep(1)
+    @y = data['y']
+  end
+end
+```
+
+Coordinating access with `Mutex`, a mutual exclusion lock, corrects this code.
+Locking makes sure that only one handler instance can execute a specific section of code at any given time:
+
+```ruby
+class MyWorkflow < Temporalio::Workflow::Definition
+  # ...
+
+  workflow_signal
+  def safe_handler
+    @mutex ||= Mutex.new
+    @mutex.synchronize do
+      data = Temporalio::Workflow.execute_activity(
+        FetchDataActivity,
+        start_to_close_timeout: 100
+      )
+      @x = data['x']
+      # 🐛🐛 Bug!! If multiple instances of this handler are executing concurrently, then
+      # there may be times when the Workflow has @x from one Activity execution and @y
+      # from another.
+      Temporalio::Workflow.sleep(1)
+      @y = data['y']
+    end
+  end
+end
+```
+
+For additional concurrency options, `wait_condition` can be used to do more advanced things such as using an integer
+attribute + `wait_condition` as a semaphore.
+
+## Troubleshooting {#message-handler-troubleshooting}
+
+When sending a Signal, Update, or Query to a Workflow, your Client might encounter the following errors:
+
+- **The Client can't contact the server**:
+  You'll receive a [`Temporalio::Error::RPCError`](https://ruby.temporal.io/Temporalio/Error/RPCError.html) exception whose `code` is an `UNAVAILABLE` constant defined in [`Code`](https://ruby.temporal.io/Temporalio/Error/RPCError/Code.html) (after some retries).
+
+- **The Workflow does not exist**:
+  You'll receive a [`Temporalio::Error::RPCError`](https://ruby.temporal.io/Temporalio/Error/RPCError.html) exception whose `code` is a `NOT_FOUND` constant defined in [`Code`](https://ruby.temporal.io/Temporalio/Error/RPCError/Code.html).
+
+See [Exceptions in message handlers](/handling-messages#exceptions) for a non–Ruby-specific discussion of this topic.
+
+### Signal issues {#signal-problems}
+
+When using Signal, the only exception that will result from your requests during its execution is `RPCError`.
+All handlers may experience additional exceptions during the initial (pre-Worker) part of a handler request lifecycle.
+
+For Queries and Updates, the Client waits for a response from the Worker.
+If an issue occurs during the handler Execution by the Worker, the Client may receive an exception.
+
+### Update issues {#update-problems}
+
+When working with Updates, you may encounter these errors:
+
+- **No Workflow Workers are polling the Task Queue**:
+  Your request will be retried by the SDK Client indefinitely.
+  Use a `Cancellation` in your [RPC options](https://ruby.temporal.io/Temporalio/Client/RPCOptions.html) to cancel the Update.
+  This raises a [WorkflowUpdateRPCTimeoutOrCanceledError](https://ruby.temporal.io/Temporalio/Error/WorkflowUpdateRPCTimeoutOrCanceledError.html) exception .
+
+- **Update failed**: You'll receive a [`WorkflowUpdateFailedError`](https://ruby.temporal.io/Temporalio/Error/WorkflowUpdateFailedError.html) exception.
+  There are two ways this can happen:
+
+  - The Update was rejected by an Update validator defined in the Workflow alongside the Update handler.
+
+  - The Update failed after having been accepted.
+
+  Update failures are like [Workflow failures](/references/failures).
+  Issues that cause a Workflow failure in the main method also cause Update failures in the Update handler.
+  These might include:
+
+      - A failed Child Workflow
+      - A failed Activity (if the Activity retries have been set to a finite number)
+      - The Workflow author raising `ApplicationError`
+      - Any error listed in `workflow_failure_exception_types` on the Worker or [`workflow_failure_exception_type`](https://ruby.temporal.io/Temporalio/Workflow/Definition.html#workflow_failure_exception_type-class_method) on the Workflow (empty by default)
+
+- **The handler caused the Workflow Task to fail**:
+  A [Workflow Task Failure](/references/failures) causes the server to retry Workflow Tasks indefinitely. What happens to your Update request depends on its stage:
+  - If the request hasn't been accepted by the server, you receive a `FAILED_PRECONDITION` [`Temporalio::Error::RPCError`](https://ruby.temporal.io/Temporalio/Error/RPCError.html) exception.
+  - If the request has been accepted, it is durable.
+    Once the Workflow is healthy again after a code deploy, use an [`WorkflowUpdateHandle`](https://ruby.temporal.io/Temporalio/Client/WorkflowUpdateHandle.html) to fetch the Update result.
+
+- **The Workflow finished while the Update handler execution was in progress**:
+  You'll receive a [`Temporalio::Error::RPCError`](https://ruby.temporal.io/Temporalio/Error/RPCError.html) "workflow execution already completed".
+
+  This will happen if the Workflow finished while the Update handler execution was in progress, for example because
+
+  - The Workflow was canceled or failed.
+
+  - The Workflow completed normally or continued-as-new and the Workflow author did not [wait for handlers to be finished](/handling-messages#finishing-message-handlers).
+
+### Query issues {#query-problems}
+
+When working with Queries, you may encounter these errors:
+
+- **There is no Workflow Worker polling the Task Queue**:
+  You'll receive a [`Temporalio::Error::RPCError`](https://ruby.temporal.io/Temporalio/Error/RPCError.html) exception whose `code` is a `FAILED_PRECONDITION` constant defined in [`Code`](https://ruby.temporal.io/Temporalio/Error/RPCError/Code.html).
+
+- **Query failed**:
+  You'll receive a [`WorkflowQueryFailedError`](https://ruby.temporal.io/Temporalio/Error/WorkflowQueryFailedError.html) exception if something goes wrong during a Query.
+  Any exception in a Query handler will trigger this error.
+  This differs from Signal and Update requests, where exceptions can lead to Workflow Task Failure instead.
+
+- **The handler caused the Workflow Task to fail.**
+  This would happen, for example, if the Query handler blocks the thread for too long without yielding.
+
+## Dynamic handlers {#dynamic-handler}
+
+Temporal supports Dynamic Queries, Signals, Updates, Workflows, and Activities.
+These are unnamed handlers that are invoked if no other statically defined handler with the given name exists.
+
+Dynamic Handlers provide flexibility to handle cases where the names of Queries, Signals, Updates, Workflows, or Activities, aren't known at run time.
+
+:::caution
+
+Dynamic Handlers should be used judiciously as a fallback mechanism rather than the primary approach.
+Overusing them can lead to maintainability and debugging issues down the line.
+
+Instead, Signals, Queries, Workflows, or Activities should be defined statically whenever possible, with clear names that indicate their purpose.
+Use static definitions as the primary way of structuring your Workflows.
+
+Reserve Dynamic Handlers for cases where the handler names are not known at compile time and need to be looked up dynamically at runtime.
+They are meant to handle edge cases and act as a catch-all, not as the main way of invoking logic.
+
+:::
+
+### Dynamic Query {#set-a-dynamic-query}
+
+A Dynamic Query in Temporal is a Query method that is invoked dynamically at runtime if no other Query with the same name is registered.
+A Query can be made dynamic by setting `dynamic` to `true` on the `workflow_query` class method.
+Only one Dynamic Query can be present on a Workflow.
+
+The Query Handler parameters must accept a string name as the first parameter. Often users set `raw_args` to `true` and set the second parameter as `*args` which will be an array of `Temporalio::Converters::RawValue`.
+The [Temporalio::Workflow.payload_converter](https://ruby.temporal.io/Temporalio/Workflow.html#payload_converter-class_method) property is used to convert the raw value instances to proper types.
+
+```ruby
+workflow_query dynamic: true, raw_args: true
+def dynamic_query(query_name, *args)
+  first_param = Temporalio::Workflow.payload_converter.from_payload(
+    args.first || raise 'Missing first parameter'
+  )
+  "Got parameter #{first_param} for query #{query_name}"
+end
+```
+
+### Dynamic Signal {#set-a-dynamic-signal}
+
+A Dynamic Signal in Temporal is a Signal that is invoked dynamically at runtime if no other Signal with the same input is registered.
+A Signal can be made dynamic by setting `dynamic` to `true` on the `workflow_signal` class method.
+Only one Dynamic Signal can be present on a Workflow.
+
+The Signal Handler parameters must accept a string name as the first parameter. Often users set `raw_args` to `true` and set the second parameter as `*args` which will be an array of `Temporalio::Converters::RawValue`.
+The [Temporalio::Workflow.payload_converter](https://ruby.temporal.io/Temporalio/Workflow.html#payload_converter-class_method) property is used to convert the raw value instances to proper types.
+
+```ruby
+workflow_signal dynamic: true, raw_args: true
+def dynamic_signal(signal_name, *args)
+  first_param = Temporalio::Workflow.payload_converter.from_payload(
+    args.first || raise 'Missing first parameter'
+  )
+  @pending_things << "Got parameter #{first_param} for signal #{signal_name}"
+end
+```
+
+### Dynamic Update {#set-a-dynamic-update}
+
+A Dynamic Update in Temporal is an Update that is invoked dynamically at runtime if no other Update with the same input is registered.
+An Update can be made dynamic by setting `dynamic` to `true` on the `workflow_update` class method.
+Only one Dynamic Update can be present on a Workflow.
+
+The Query Handler parameters must accept a string name as the first parameter. Often users set `raw_args` to `true` and set the second parameter as `*args` which will be an array of `Temporalio::Converters::RawValue`.
+The [Temporalio::Workflow.payload_converter](https://ruby.temporal.io/Temporalio/Workflow.html#payload_converter-class_method) property is used to convert the raw value instances to proper types.
+
+```ruby
+workflow_update dynamic: true, raw_args: true
+def dynamic_update(update_name, *args)
+  first_param = Temporalio::Workflow.payload_converter.from_payload(
+    args.first || raise 'Missing first parameter'
+  )
+  @pending_things << "Got parameter #{first_param} for update #{update_name}"
+end
+```
+
+---
+
+## Observability - Ruby SDK
+
+This page covers capabilities related to viewing the state of the application, including:
+
+- [Metrics](#metrics)
+- [Tracing](#tracing)
+- [Logging](#logging)
+- [Visibility](#visibility)
+
+The observability guide covers the many ways to view the current state of your [Temporal Application](/temporal#temporal-application).
+This includes viewing [Workflow Executions](/workflow-execution) tracked by the [Temporal Platform](/temporal#temporal-platform), as well as inspecting state at any point during execution.
+
+## Emit metrics {#metrics}
+
+Each Temporal SDK can optionally emit metrics from either the Client or Worker process.
+
+- Metrics can be scraped by systems like [Prometheus](https://prometheus.io/docs/introduction/overview/).
+- Graphs can be created using tools like [Grafana](https://grafana.com/docs/).
+- For a list of metrics, see the [SDK metrics reference](/references/sdk-metrics).
+
+Metrics in Ruby are configured on the `metrics` argument of the `telemetry` argument when creating a global `Temporalio::Runtime`. That object should be created globally and should be used for all clients; therefore, you should configure this before any other Temporal code.
+
+## Set a Prometheus endpoint
+
+The following example exposes a Prometheus endpoint on port `9000`.
+
+```ruby
+Temporalio::Runtime.default = Temporalio::Runtime.new(
+  telemetry: Temporalio::Runtime::TelemetryOptions.new(
+    metrics: Temporalio::Runtime::MetricsOptions.new(
+      prometheus: Temporalio::Runtime::PrometheusMetricsOptions.new(
+        bind_address: '0.0.0.0:9000'
+      )
+    )
+  )
+)
+```
+
+### Custom metric handling
+
+Instead of Prometheus or OpenTelemetry, an instance of `Temporalio::Runtime::MetricBuffer` can be provided as a `buffer` argument to the `MetricsOptions`.
+`retrieve_updates` can then be periodically called on the buffer to get metric updates.
+
+## Setup Tracing {#tracing}
+
+Tracing enables observability into the sequence of calls across your application, including Workflows and Activities.
+
+OpenTelemetry tracing for clients, activities, and workflows can be enabled using the `Temporalio::Contrib::OpenTelemetry::TracingInterceptor`. Specifically, when creating a client, set the interceptor like so:
+
+```ruby
+require 'opentelemetry/api'
+require 'opentelemetry/sdk'
+require 'temporalio/client'
+require 'temporalio/contrib/open_telemetry'
+
+# ... assumes my_otel_tracer_provider is a tracer provider created by the user
+my_tracer = my_otel_tracer_provider.tracer('my-otel-tracer')
+
+my_client = Temporalio::Client.connect(
+  'localhost:7233', 'my-namespace',
+  interceptors: [Temporalio::Contrib::OpenTelemetry::TracingInterceptor.new(my_tracer)]
+)
+```
+
+When your Client is connected, spans are created for all Client calls, Activities, and Workflow invocations on the Worker.
+Spans are created and serialized through the server to give one trace for a Workflow Execution.
+
+## Log from a Workflow {#logging}
+
+Logging enables you to capture and persist important execution details from your Workflow and Activity code.
+
+Logging levels typically include:
+
+| Level   | Use                                                                                                       |
+| ------- | --------------------------------------------------------------------------------------------------------- |
+| `DEBUG` | Detailed information, typically useful for debugging purposes.                                            |
+| `INFO`  | General information about the application's operation.                                                    |
+| `WARN`  | Indicates potentially harmful situations or minor issues that don't prevent the application from working. |
+| `ERROR` | Indicates error conditions that might still allow the application to continue running.                    |
+
+Logging uses the Ruby standard logging APIs.
+The `logger` can be set when connecting a client.
+The following example shows logging on the console and sets the level to `INFO`.
+
+```ruby
+require 'logger'
+require 'temporalio/client'
+
+my_client = Temporalio::Client.connect(
+  'localhost:7233', 'my-namespace',
+  logger: Logger.new($stdout, level: Logger::INFO)
+)
+```
+
+You can log from a Workflow using `Temporalio::Workflow.logger` which is a special instance of Ruby's `Logger` that
+appends workflow details to every log and does not log during replay.
+
+```ruby
+Temporalio::Workflow.logger.info("Some log #{some_value}")
+```
+
+There's also one for use in activities that appends Activity details to every log:
+
+```ruby
+Temporalio::Activity::Context.current.logger.info("Some log #{some_value}")
+```
+
+## Use Visibility APIs {#visibility}
+
+Visibility refers to Temporal features for listing, filtering, and inspecting Workflow Executions.
+
+### Use Search Attributes {#search-attributes}
+
+- [Default Search Attributes](/search-attribute#default-search-attribute) like `WorkflowType`, `StartTime`, and `ExecutionStatus` are automatically indexed.
+- [Custom Search Attributes](/search-attribute#custom-search-attribute) let you store domain-specific metadata for Workflows.
+
+The typical method of retrieving a Workflow Execution is by its Workflow Id.
+
+However, sometimes you'll want to retrieve one or more Workflow Executions based on another property. For example, imagine you want to get all Workflow Executions of a certain type that have failed within a time range, so that you can start new ones with the same arguments.
+
+You can do this with [Search Attributes](/search-attribute).
+
+- [Default Search Attributes](/search-attribute#default-search-attribute) like `WorkflowType`, `StartTime` and `ExecutionStatus` are automatically added to Workflow Executions.
+- _Custom Search Attributes_ can contain their own domain-specific data (like `customerId` or `numItems`).
+- A few [generic Custom Search Attributes](/search-attribute#custom-search-attribute) like `CustomKeywordField` and `CustomIntField` are created by default in Temporal's [Docker Compose](https://github.com/temporalio/docker-compose).
+
+The steps to using custom Search Attributes are:
+
+- Create a new Search Attribute in your Temporal Service in the CLI or Web UI.
+  - For example: `temporal operator search-attribute create --name CustomKeywordField --type Text`
+    - Replace `CustomKeywordField` with the name of your Search Attribute.
+    - Replace `Text` with a type value associated with your Search Attribute: `Text` | `Keyword` | `Int` | `Double` | `Bool` | `Datetime` | `KeywordList`
+- Set the value of the Search Attribute for a Workflow Execution:
+  - On the Client by including it as an argument when starting the Execution.
+  - In the Workflow by calling `Temporalio::Workflow.upsert_search_attributes`.
+- Read the value of the Search Attribute:
+  - On the Client by calling `describe` on a `WorkflowHandle`.
+  - In the Workflow by looking at `Temporalio::Workflow.search_attributes`.
+- Query Workflow Executions by the Search Attribute using a [List Filter](/list-filter):
+  - [In the Temporal CLI](/cli/operator#list-2)
+  - In code by calling `list_workflows`.
+
+### List Workflow Executions {#list-workflow-executions}
+
+Use the [list_workflows](https://ruby.temporal.io/Temporalio/Client.html#list_workflows-instance_method) method on the Client and pass a [List Filter](/list-filter) as an argument to filter the listed Workflows.
+The result is a lazy enumerator/enumerable.
+
+```ruby
+my_client.list_workflows("WorkflowType='GreetingWorkflow'").each do |wf|
+  puts "Workflow: #{wf.id}"
+end
+```
+
+### Set Custom Search Attributes {#custom-search-attributes}
+
+After you've created custom Search Attributes in your Temporal Service (using `temporal operator search-attribute create`or the Cloud UI), you can set the values of the custom Search Attributes when starting a Workflow.
+
+To set custom Search Attributes, use the `search_attributes` parameter for `start_workflow` or `execute_workflow`.
+Keys should be predefined for reuse.
+
+```ruby
+# Predefined search attribute key, usually a global somewhere
+MY_KEYWORD_KEY = Temporalio::SearchAttributes::Key.new(
+  'my-keyword',
+  Temporalio::SearchAttributes::IndexedValueType::KEYWORD
+)
+
+# ...
+
+# Start workflow with the search attribute set
+handle = my_client.start_workflow(
+  MyWorkflow, 'some-input',
+  id: 'my-workflow-id', task_queue: 'my-task-queue',
+  search_attributes: Temporalio::SearchAttributes.new({ MY_KEYWORD_KEY => 'some-value' })
+)
+```
+
+### Upsert Search Attributes {#upsert-search-attributes}
+
+You can upsert Search Attributes to add, update, or remove Search Attributes from within Workflow code.
+
+To upsert custom Search Attributes, use the [`upsert_search_attributes`](https://ruby.temporal.io/Temporalio/Workflow.html#upsert_search_attributes-class_method) method with a set of updates.
+Keys should be predefined for reuse.
+
+```ruby
+# Predefined search attribute key, usually a global somewhere
+MY_KEYWORD_KEY = Temporalio::SearchAttributes::Key.new(
+  'my-keyword',
+  Temporalio::SearchAttributes::IndexedValueType::KEYWORD
+)
+
+# ...
+
+class MyWorkflow < Temporalio::Workflow::Definition
+  def execute
+    # ...
+
+    Temporalio::Workflow.upsert_search_attributes(MY_KEYWORD_KEY.value_set('some-new-value'))
+
+    # ...
+  end
+end
+```
+
+---
+
+## Schedules - Ruby SDK
+
+This page shows how to do the following:
+
+- [Schedule a Workflow](#schedule-a-workflow)
+  - [Create a Scheduled Workflow](#create-a-workflow)
+  - [Backfill a Scheduled Workflow](#backfill-a-scheduled-workflow)
+  - [Delete a Scheduled Workflow](#delete-a-scheduled-workflow)
+  - [Describe a Scheduled Workflow](#describe-a-scheduled-workflow)
+  - [List a Scheduled Workflow](#list-a-scheduled-workflow)
+  - [Pause a Scheduled Workflow](#pause-a-scheduled-workflow)
+  - [Trigger a Scheduled Workflow](#trigger-a-scheduled-workflow)
+  - [Update a Scheduled Workflow](#update-a-scheduled-workflow)
+- [Use Start Delay](#start-delay)
+
+## Schedule a Workflow {#schedule-a-workflow}
+
+Scheduling Workflows is a crucial aspect of automation.
+By scheduling a Workflow, you can automate repetitive tasks, reduce manual intervention, and ensure timely execution.
+
+Use the following actions to manage Scheduled Workflows.
+
+### Create a Scheduled Workflow {#create-a-workflow}
+
+The create action enables you to create a new Schedule. When you create a new Schedule, a unique Schedule ID is generated, which you can use to reference the Schedule in other Schedule commands.
+
+To create a Scheduled Workflow Execution in Ruby, use the [create_schedule](https://ruby.temporal.io/Temporalio/Client.html#create_schedule-instance_method)
+method on the Client.
+Then pass the Schedule ID and the Schedule object to the method to create a Scheduled Workflow Execution.
+Set the Schedule's `action` member to an instance of `Temporalio::Client::Schedule::Action::StartWorkflow` to schedule a Workflow Execution.
+
+```ruby
+handle = my_client.create_schedule(
+  'my_schedule_id',
+  Temporalio::Client::Schedule.new(
+    action: Temporalio::Client::Schedule::Action::StartWorkflow.new(
+      MyWorkflow, 'some-input',
+      id: 'my-workflow-id', task_queue: 'my-task-queue'
+    ),
+    spec: Temporalio::Client::Schedule::Spec.new(
+      intervals: [
+        Temporalio::Client::Schedule::Spec::Interval.new(
+          every: 5 * 24 * 60 * 60.0, # 5 days
+        )
+      ]
+    )
+  )
+)
+```
+
+:::tip Schedule Auto-Deletion
+
+Once a Schedule has completed creating all its Workflow Executions, the Temporal Service deletes it since it won’t fire again.
+The Temporal Service doesn't guarantee when this removal will happen.
+
+:::
+
+### Backfill a Scheduled Workflow {#backfill-a-scheduled-workflow}
+
+The backfill action executes Actions ahead of their specified time range. This command is useful when you need to execute a missed or delayed Action, or when you want to test the Workflow before its scheduled time.
+
+To backfill a Scheduled Workflow Execution in Ruby, use the [backfill](https://ruby.temporal.io/Temporalio/Client/ScheduleHandle.html#backfill-instance_method)
+method on the Schedule Handle.
+
+```ruby
+handle = my_client.schedule_handle('my-schedule-id')
+now = Time.now(in: 'UTC')
+handle.backfill(
+  Temporalio::Client::Schedule::Backfill.new(
+    start_at: now - (4 * 60),
+    end_at: now - (2 * 60),
+    overlap: Temporalio::Client::Schedule::OverlapPolicy::ALLOW_ALL
+  )
+)
+```
+
+### Delete a Scheduled Workflow {#delete-a-scheduled-workflow}
+
+The delete action enables you to delete a Schedule. When you delete a Schedule, it does not affect any Workflows that were started by the Schedule.
+
+To delete a Scheduled Workflow Execution in Ruby, use the [delete](https://ruby.temporal.io/Temporalio/Client/ScheduleHandle.html#delete-instance_method) method on the Schedule Handle.
+
+```ruby
+handle = my_client.schedule_handle('my-schedule-id')
+handle.delete
+```
+
+### Describe a Scheduled Workflow {#describe-a-scheduled-workflow}
+
+The describe action shows the current Schedule configuration, including information about past, current, and future Workflow Runs. This command is helpful when you want to get a detailed view of the Schedule and its associated Workflow Runs.
+
+To describe a Scheduled Workflow Execution in Ruby, use the [describe](https://ruby.temporal.io/Temporalio/Client/ScheduleHandle.html#describe-instance_method) method on the Schedule Handle.
+
+```ruby
+handle = my_client.schedule_handle('my-schedule-id')
+desc = handle.describe
+puts "Schedule info: #{desc.info}"
+```
+
+### List a Scheduled Workflow {#list-a-scheduled-workflow}
+
+The list action lists all the available Schedules. This command is useful when you want to view a list of all the Schedules and their respective Schedule IDs.
+
+To list all schedules, use the [list_schedules](https://ruby.temporal.io/Temporalio/Client.html#list_schedules-instance_method) asynchronous method on the Client.
+This returns an enumerator/enumerable.
+If a schedule is added or deleted, it may not be available in the list immediately.
+
+```ruby
+my_client.list_schedules.each do |sched|
+  puts "Schedule info: #{sched}"
+end
+```
+
+### Pause a Scheduled Workflow {#pause-a-scheduled-workflow}
+
+The pause action enables you to pause and unpause a Schedule. When you pause a Schedule, all the future Workflow Runs associated with the Schedule are temporarily stopped. This command is useful when you want to temporarily halt a Workflow due to maintenance or any other reason.
+
+To pause a Scheduled Workflow Execution in Ruby, use the [pause](https://ruby.temporal.io/Temporalio/Client/ScheduleHandle.html#pause-instance_method) method on the Schedule Handle.
+You can pass a note to the `pause` method to provide a reason for pausing the schedule.
+
+```ruby
+handle = my_client.schedule_handle('my-schedule-id')
+handle.pause(note: 'Pausing the schedule for now')
+```
+
+### Trigger a Scheduled Workflow {#trigger-a-scheduled-workflow}
+
+The trigger action triggers an immediate action with a given Schedule. By default, this action is subject to the Overlap Policy of the Schedule. This command is helpful when you want to execute a Workflow outside of its scheduled time.
+
+To trigger a Scheduled Workflow Execution in Ruby, use the [trigger](https://ruby.temporal.io/Temporalio/Client/ScheduleHandle.html#trigger-instance_method) method on the Schedule Handle.
+
+```ruby
+handle = my_client.schedule_handle('my-schedule-id')
+handle.trigger
+```
+
+### Update a Scheduled Workflow {#update-a-scheduled-workflow}
+
+The update action enables you to update an existing Schedule. This command is useful when you need to modify the Schedule's configuration, such as changing the start time, end time, or interval.
+
+To update a Scheduled Workflow Execution in Ruby, use the [update](https://ruby.temporal.io/Temporalio/Client/ScheduleHandle.html#update-instance_method) method on the Schedule Handle.
+This method accepts a block which itself accepts an update input object and is expected to return an update with a new
+schedule to update, or `nil` to not update.
+
+```ruby
+handle = my_client.schedule_handle('my-schedule-id')
+handle.update do |input|
+  # Return a new schedule with the action updated
+  Temporalio::Client::Schedule::Update.new(
+    schedule: input.description.schedule.with(
+      # Update the action
+      action: Temporalio::Client::Schedule::Action::StartWorkflow.new(
+        MyNewWorkflow, 'some-new-input',
+        id: 'my-workflow-id', task_queue: 'my-task-queue'
+      )
+    )
+  )
+end
+```
+
+## Use Start Delay {#start-delay}
+
+Use the `start_delay` to schedule a Workflow Execution at a specific one-time future point rather than on a recurring schedule.
+
+Use the `start_delay` parameter on either the `start_workflow` or `execute_workflow` methods in the Client.
+
+```ruby
+handle = my_client.start_workflow(
+  MyWorkflow, 'some-input',
+  id: 'my-workflow-id', task_queue: 'my-task-queue',
+  start_delay: 3 * 60 * 60 # 3 hours
+)
+```
+
+---
+
+## Set up your local with the Ruby SDK
+
+# Quickstart - Setup
+
+This guide walks you through setting up the Temporal Ruby SDK and running your first Workflow.
+In just a few steps, you'll install the SDK and start a local development server.
+To validate that your local environment is correctly installed, we will execute a Workflow that will output "Hello, Temporal".
+
+<SetupSteps>
+<SetupStep code={
+  <>
+    1. Check your Ruby version:
+    <CodeSnippet language="bash">
+    ruby -v
+    </CodeSnippet>
+    You should see output like <code>ruby 3.4.3</code>. Ruby 3.2+ is required. We recommend Ruby 3.4.3.
+
+    2. Create your project folder:
+    <CodeSnippet language="bash">
+    mkdir temporal-project
+    cd temporal-project
+    </CodeSnippet>
+
+    3. Initialize with Bundler:
+    <CodeSnippet language="bash">
+    bundle init
+    </CodeSnippet>
+
+    4. Add the Temporal Ruby SDK:
+    <CodeSnippet language="bash">
+    bundle add temporalio
+    </CodeSnippet>
+
+    You should see output like:
+    <CodeSnippet language="bash">
+    Fetching gem metadata from https://rubygems.org/...
+    Resolving dependencies...
+    Installing temporalio 0.4.0 (arm64-darwin)
+    Bundle complete! 1 Gemfile dependency, 6 gems now installed.
+    </CodeSnippet>
+
+    5. Install dependencies:
+    <CodeSnippet language="bash">
+    bundle install
+    </CodeSnippet>
+
+</>
+}>
+
+## Installation
+
+This step sets up a new Ruby project using Bundler and installs the Temporal Ruby SDK.
+
+We recommend using [Bundler](https://bundler.io/) to manage your Ruby project dependencies, including the Temporal SDK. These tutorials assume Ruby 3.4.3 or higher.
+
+Follow the steps to create a directory, initialize the project with a `Gemfile`, and add the Temporal SDK.
+
+**Note:**
+
+- Only macOS ARM/x64 and Linux ARM/x64 are supported.
+- Source gem is published but **cannot be built directly**.
+- Windows (MinGW) is not supported.
+- `fibers`/`async` are only supported on Ruby **3.3+**.
+- See [Platform Support](#) for full details.
+
+</SetupStep>
+
+<SetupStep code={
+<>
+<Tabs>
+<TabItem value="macos" label="macOS" default>
+
+        Install the Temporal CLI using Homebrew:
+        <CodeSnippet language="bash">
+        brew install temporal
+        </CodeSnippet>
+      </TabItem>
+
+      <TabItem value="windows" label="Windows">
+        Download the Temporal CLI archive for your architecture:
+        
+          Windows amd64
+          Windows arm64
+        
+        Extract it and add <code>temporal.exe</code> to your PATH.
+      </TabItem>
+
+      <TabItem value="linux" label="Linux">
+        Download the Temporal CLI for your architecture:
+        
+          Linux amd64
+          Linux arm64
+        
+        Extract the archive and move the <code>temporal</code> binary into your PATH, for example:
+        <CodeSnippet language="bash">
+        sudo mv temporal /usr/local/bin
+        </CodeSnippet>
+      </TabItem>
+    </Tabs>
+
+</>
+}>
+
+## Install Temporal CLI
+
+The fastest way to get a development version of the Temporal Service running on your local machine is to use [Temporal CLI](https://docs.temporal.io/cli).
+
+Choose your operating system to install Temporal CLI.
+
+</SetupStep>
+
+<SetupStep code={
+<>
+
+After installing, open a new Terminal window and start the development server:
+
+<CodeSnippet language="bash">
+temporal server start-dev
+</CodeSnippet>
+
+Change the Web UI port
+The Temporal Web UI may be on a different port in some examples or tutorials. To change the port for the Web UI, use the <code>--ui-port</code> option when starting the server:
+<CodeSnippet language="bash">
+temporal server start-dev --ui-port 8080
+</CodeSnippet>
+The Temporal Web UI will now be available at http://localhost:8080.
+
+<style>
+{`.port-info { background: rgba(68, 76, 231, 0.1); border: 1px solid rgba(68, 76, 231, 0.2); border-radius: 0.75rem; padding: 1.5rem; margin: 1.5rem 0; transition: all 0.3s ease-in-out; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05); } [data-theme='dark'] .port-info { background: rgba(68, 76, 231, 0.15); border-color: rgba(68, 76, 231, 0.3); } .port-info h4 { margin-top: 0; margin-bottom: 1rem; color: var(--ifm-color-emphasis-900); font-weight: 600; } .port-info p { margin-bottom: 1rem; font-size: 0.95rem; line-height: 1.5; color: var(--ifm-color-emphasis-800); } .port-info p:last-child { margin-bottom: 0; } .port-info code { background: rgba(255, 255, 255, 0.5); padding: 0.2rem 0.4rem; border-radius: 4px; font-size: 0.9em; } [data-theme='dark'] .port-info code { background: rgba(0, 0, 0, 0.2); } @media (max-width: 768px) { .port-info { padding: 1.25rem; } }`}
+</style>
+</>
+}>
+
+## Start the development server
+
+Once you've installed Temporal CLI and added it to your PATH, open a new Terminal window and run the following command.
+
+This command starts a local Temporal Service. It starts the Web UI, creates the default Namespace, and uses an in-memory database.
+
+The Temporal Service will be available on localhost:7233.
+The Temporal Web UI will be available at http://localhost:8233.
+
+Leave the local Temporal Service running as you work through tutorials and other projects. You can stop the Temporal Service at any time by pressing CTRL+C.
+
+Once you have everything installed, you're ready to build apps with Temporal on your local machine.
+
+</SetupStep>
+</SetupSteps>
+
+## Run Hello World: Test Your Installation
+
+Now let's verify your setup is working by creating and running a complete Temporal application with both a Workflow and Activity.
+
+This test will confirm that:
+
+- The Temporal Ruby SDK is properly installed
+- Your local Temporal Service is running
+- You can successfully create and execute Workflows and Activities
+- The communication between components is functioning correctly
+
+### 1. Create the Activity
+
+Create an Activity file (say_hello_activity.rb):
+
+```ruby
+require 'temporalio/activity'
+
+# Implementation of a simple activity
+class SayHelloActivity < Temporalio::Activity::Definition
+  def execute(name)
+    "Hello, #{name}!"
+  end
+end
+```
+
+### 2. Create the Workflow
+
+Create a Workflow file (say_hello_workflow.rb):
+
+```ruby
+require 'temporalio/workflow'
+require_relative 'say_hello_activity'
+
+class SayHelloWorkflow < Temporalio::Workflow::Definition
+  def execute(name)
+    Temporalio::Workflow.execute_activity(
+      SayHelloActivity,
+      name,
+      schedule_to_close_timeout: 300
+    )
+  end
+end
+```
+
+### 3. Create and Run the Worker
+
+With your Activity and Workflow defined, you need a Worker to execute them.
+Workers are a crucial part of your Temporal application as they're what actually execute the tasks defined in your Workflows and Activities.
+For more information on Workers, see [Understanding Temporal](/evaluate/understanding-temporal#workers) and a [deep dive into Workers](/workers).
+
+Create a Worker file (worker.rb):
+
+```ruby
+require 'temporalio/client'
+require 'temporalio/worker'
+require_relative 'say_hello_activity'
+require_relative 'say_hello_workflow'
+
+# Create a client
+client = Temporalio::Client.connect('localhost:7233', 'default')
+
+# Create a worker with the client, activities, and workflows
+worker = Temporalio::Worker.new(
+  client:,
+  task_queue: 'my-task-queue',
+  workflows: [SayHelloWorkflow],
+  # There are various forms an activity can take, see "Activities" section for details
+  activities: [SayHelloActivity]
+)
+
+# Run the worker until SIGINT. This can be done in many ways, see "Workers" section for details.
+worker.run(shutdown_signals: ['SIGINT'])
+```
+
+Run the Worker:
+
+```bash
+ruby worker.rb
+```
+
+### 4. Execute the Workflow
+
+Now that your Worker is running, it's time to start a Workflow Execution.
+
+Create a separate file called starter.rb:
+
+```ruby
+require 'temporalio/client'
+require_relative 'say_hello_workflow'
+
+# Create a client
+client = Temporalio::Client.connect('localhost:7233', 'default')
+
+# Run workflow
+result = client.execute_workflow(
+  SayHelloWorkflow,
+  'Temporal', # This is the input to the workflow
+  id: 'my-workflow-id',
+  task_queue: 'my-task-queue'
+)
+puts "Result: #{result}"
+```
+
+Then run:
+
+```bash
+ruby starter.rb
+```
+
+### Verify Success
+
+If everything is working correctly, you should see:
+
+- Worker processing the workflow and activity
+- Output: `Workflow result: Hello, Temporal!`
+- Workflow Execution details in the [Temporal Web UI](http://localhost:8233)
+
+<CallToAction href="https://learn.temporal.io/getting_started/ruby/first_program_in_ruby/">
+  Next: Run your first Temporal Application
+  Learn how to create a basic Workflow and run it with the Temporal Ruby SDK
+</CallToAction>
+
+---
+
+## Temporal Client - Ruby SDK
+
+This page shows how to do the following:
+
+- [Create a Temporal Client](#create-a-client)
+- [Connect to Temporal Cloud](#connect-to-temporal-cloud)
+- [Start a Workflow](#start-workflow)
+- [Get Workflow results](#get-workflow-results)
+
+## Create a Temporal Client {#create-a-client}
+
+A [Temporal Client](/encyclopedia/temporal-sdks#temporal-client) enables you to communicate with the [Temporal Service](/temporal-service).
+Communication with a Temporal Service includes, but isn't limited to, the following:
+
+- Starting Workflow Executions.
+- Sending Signals to Workflow Executions.
+- Sending Queries to Workflow Executions.
+- Getting the results of a Workflow Execution.
+- Providing an Activity Task Token.
+  All applications that need to communicate directly with the Temporal Service will run inside of Temporal Clients.
+
+Your Workers are technically Temporal Clients, because they need to poll the Temporal Service to actually do work.
+Your Workflow and Activity definitions are _not_ Temporal Clients -- your Worker imports these directly instead.
+Each Temporal SDK includes a set of Temporal Client functions.
+The `temporal` CLI is also a Temporal Client, and is generally at feature parity with the SDKs.
+:::caution
+
+A Temporal Client cannot be initialized and used inside a Workflow.
+However, it is acceptable and common to use a Temporal Client inside an Activity to communicate with a Temporal Service.
+
+:::
+
+When running a Temporal Service locally (such as via [Temporal CLI](https://docs.temporal.io/cli/server#start-dev)), the number of connection options required is minimal.
+
+Use the `connect` class method on the `Temporalio::Client` class to create and connect to a Temporal Client to the Temporal Service.
+
+```ruby
+client = Temporalio::Client.connect('localhost:7233', 'default')
+```
+
+## Connect to Temporal Cloud {#connect-to-temporal-cloud}
+
+### How to connect to Temporal Cloud using an API Key {#connect-to-temporal-cloud-api-key}
+
+To use an [API key](/cloud/api-keys) with the Temporal Ruby SDK, you will need to provide additional connection options:
+
+- Your _API Key_ value
+- Your _Namespace and Account id_ combination, which follows the format `<namespace_id>.<account_id>`.
+- The _endpoint_ may vary. The most common endpoint used is the gRPC regional endpoint, which follows the format: `<region>.<cloud_provider>.api.temporal.io:7233`.
+- For Namespaces with High Availability features with API key authentication enabled, use the gRPC Namespace endpoint: `<namespace>.<account>.tmprl.cloud:7233`.
+  This allows automated failover without needing to switch endpoints.
+
+You can find the Namespace and Account ID, as well as the endpoint, on the Namespaces tab:
+
+![The Namespace and Account ID combination on the left, and the regional endpoint on the right](/img/cloud/apikeys/namespaces-and-regional-endpoints.png)
+
+Now, when instantiating a Temporal client in your Ruby SDK code, provide the `api_key` value.
+
+To create an initial connection:
+
+```ruby
+client = Temporalio::Client.connect(
+  '<endpoint>', # Endpoint
+  '<namespace_id>.<account_id>', # Namespace
+  api_key: '<api_key>',
+  tls: true
+)
+```
+
+To update an API key, update the value of `api_key`:
+
+```ruby
+client.connection.api_key = '<updated_api_key>'
+```
+
+### How to connect to Temporal Cloud using mTLS {#connect-to-temporal-cloud-mtls}
+
+When you connect to [Temporal Cloud](/cloud), you need to provide additional connection and client options that include the following:
+
+- The [Temporal Cloud Namespace Id](/cloud/namespaces#temporal-cloud-namespace-id).
+- The [Namespace's gRPC endpoint](/cloud/namespaces#temporal-cloud-grpc-endpoint).
+  An endpoint listing is available at the [Temporal Cloud Website](https://cloud.temporal.io/namespaces) on each Namespace detail page.
+  The endpoint contains the Namespace Id and port.
+- mTLS CA certificate.
+- mTLS private key.
+
+For more information about managing and generating client certificates for Temporal Cloud, see [How to manage certificates in Temporal Cloud](/cloud/certificates).
+
+For more information about configuring TLS to secure inter- and intra-network communication for a Temporal Service, see [Temporal Customization Samples](https://github.com/temporalio/samples-server).
+
+Use the `connect` static method on the `Temporalio::Client` class to create and connect to a Temporal Client to the Temporal Service.
+Specify the `tls` parameter of the connection options to connect to a Temporal Service with mTLS enabled.
+
+```ruby
+client = Temporalio::Client.connect(
+  '<endpoint>', # Endpoint
+  '<namespace_id>.<account_id>', # Namespace
+  tls: Temporalio::Client::Connection::TLSOptions.new(
+    client_cert: File.read('my-client-cert.pem'),
+    client_private_key: File.read('my-client-key.pem')
+  )
+)
+```
+
+## Start a Workflow {#start-workflow}
+
+To start a Workflow Execution, supply:
+
+- A Task Queue
+- A Workflow Type
+- Input arguments
+- Workflow options such as Workflow Id
+
+To start a Workflow Execution in Ruby, use either the `start_workflow` or `execute_workflow` methods in the Client.
+You must set a [Workflow Id](/workflow-execution/workflowid-runid#workflow-id) and [Task Queue](/task-queue) in the parameters given to the method.
+
+```ruby
+result = my_client.execute_workflow(
+  MyWorkflow, 'some-input',
+  id: 'my-workflow-id', task_queue: 'my-task-queue'
+)
+puts "Result: #{result}"
+```
+
+## Get Workflow results {#get-workflow-results}
+
+Once a Workflow Execution is started, the Workflow Id and Run Id can be used to uniquely identify it.
+
+You can block until the result is available, or retrieve it later using the handle.
+
+You can also use Queries to access Workflow state and results while the Workflow is running.
+
+Use `start_workflow` or `workflow_handle` on the Client to return a Workflow handle.
+Then use the `result` method to await on the result of the Workflow.
+
+```ruby
+handle = my_client.workflow_handle('my-workflow-id')
+result = handle.result
+puts "Result: #{result}"
+```
+
+---
+
+## Testing - Ruby SDK
+
+This page shows how to do the following:
+
+- [Understand types of tests](#types-of-tests)
+- [Use compatible test frameworks](#test-frameworks)
+- [Test Workflows](#testing-workflows)
+- [Test Activities](#test-activities)
+- [Replay tests](#replay-test)
+
+The Ruby test-suite feature guide describes the frameworks that facilitate Workflow and integration testing.
+
+## Types of Tests {#types-of-tests}
+
+In the context of Temporal, you can create these types of automated tests:
+
+- **End-to-end:** Running a Temporal Server and Worker with all its Workflows and Activities; starting and interacting with Workflows from a Client.
+- **Integration:** Anything between end-to-end and unit testing.
+  - Running Activities with mocked Context and other SDK imports (and usually network requests).
+  - Running Workers with mock Activities, and using a Client to start Workflows.
+  - Running Workflows with mocked SDK imports.
+- **Unit:** Running a piece of Workflow or Activity code and mocking any code it calls.
+
+We generally recommend writing the majority of your tests as integration tests.
+
+Because the test server supports skipping time, use the test server for both end-to-end and integration tests with Workers.
+
+## Test frameworks {#test-frameworks}
+
+**Compatible testing frameworks**
+
+The Ruby SDK is compatible with any testing framework and does not have a specific recommendation.
+Most Ruby SDK samples use [minitest](https://github.com/minitest/minitest).
+
+## Testing Workflows {#testing-workflows}
+
+Workflow testing can be done in an integration-test fashion against a real server, however it is hard to simulate timeouts and other long time-based code.
+Using the time-skipping Workflow test environment can help there.
+
+### Testing Workflows with standard server
+
+A non-time-skipping `Temporalio::Testing::WorkflowEnvironment` can be started via `start_local` which supports all standard Temporal features.
+It is actually the real Temporal dev server packaged in the Temporal CLI, lazily downloaded on first use, and run as a sub-process in the background.
+Assuming tests properly use separate Task Queues, the same server can and should be reused across tests.
+
+Here's a simple example of a Workflow:
+
+```ruby
+class SimpleWorkflow < Temporalio::Workflow::Definition
+  def execute(name)
+    "Hello, #{name}!"
+  end
+end
+```
+
+Here's how a test of that Workflow may appear in minitest:
+
+```ruby
+def test_simple_workflow
+  # Start local server that is stopped when block is done
+  Temporalio::Testing::WorkflowEnvironment.start_local do |env|
+    # Start worker that is stopped when block is done
+    worker = Temporalio::Worker.new(
+      env.client,
+      task_queue: "tq-#{SecureRandom.uuid}",
+      workflows: [SimpleWorkflow]
+    )
+    worker.run do
+      # Execute workflow and check result
+      result = env.client.execute_workflow(
+        SimpleWorkflow, 'some-name',
+        id: "wf-#{SecureRandom.uuid}", task_queue: worker.task_queue
+      )
+      assert_equal 'Hello, some-name!', result
+    end
+  end
+end
+```
+
+While this is just a demonstration, a local server is often used as a fixture across many tests.
+In minitest for instance, users often start the environment lazily (with no block), and shut it down inside a block passed to `Minitest.after_run`.
+
+### Testing Workflows with time skipping
+
+Sometimes there is a need to test Workflows that run a long time or to test that timeouts occur.
+A time-skipping `Temporalio::Testing::WorkflowEnvironment` can be started via `start_time_skipping` which is a reimplementation of the Temporal server with special time skipping capabilities.
+Like `start_local`, this also lazily downloads the process to run when first called.
+Note, unlike `start_local`, this class is not thread safe nor safe for use with independent tests.
+It can be technically be reused, but only for one test at a time because time skipping is locked/unlocked at the environment level.
+Developers are encouraged to run it per test needed.
+
+#### Automatic time skipping
+
+Here's a simple example of a Workflow that waits a day:
+
+```ruby
+class WaitADayWorkflow < Temporalio::Workflow::Definition
+  def execute
+    Temporalio::Workflow.sleep(1 * 24 * 60 * 60)
+    'all done'
+  end
+end
+```
+
+A regular integration test of this Workflow on a normal server would be way too slow.
+However, the time-skipping server automatically skips to the next event when we wait on the result.
+Here's a test for that Workflow in minitest:
+
+```ruby
+def test_wait_a_day_workflow
+  # Start time-skipping test server that is stopped when block is done
+  Temporalio::Testing::WorkflowEnvironment.start_time_skipping do |env|
+    # Start worker that is stopped when block is done
+    worker = Temporalio::Worker.new(
+      env.client,
+      task_queue: "tq-#{SecureRandom.uuid}",
+      workflows: [WaitADayWorkflow]
+    )
+    worker.run do
+      # Execute workflow and check result
+      result = env.client.execute_workflow(
+        WaitADayWorkflow,
+        id: "wf-#{SecureRandom.uuid}", task_queue: worker.task_queue
+      )
+      assert_equal 'all done', result
+    end
+  end
+end
+```
+
+This test will run almost instantly.
+This is because by calling `execute_workflow` on our client, we are actually calling `start_workflow` + `result`, and `result` automatically skips time as much as it can (basically until the end of the workflow or until an activity is run).
+
+To disable automatic time-skipping while waiting for a workflow result, run code in a block passed to `env.auto_time_skipping_disabled`.
+
+#### Manual time skipping
+
+Until a Workflow is waited on, all time skipping in the time-skipping environment is done manually via `WorkflowEnvironment#sleep`.
+
+Here's a Workflow that waits for a Signal or times out:
+
+```ruby
+class SignalWorkflow < Temporalio::Workflow::Definition
+  def execute
+    # Wait for signal or timeout in 45 seconds
+    Temporalio::Workflow.timeout(45 * 60) do
+      Temporalio::Workflow.wait_condition { @signal_received }
+    end
+    'got signal'
+  rescue Timeout::Error
+    'got timeout'
+  end
+
+  workflow_signal
+  def some_signal
+    @signal_received = true
+  end
+end
+```
+
+To test a normal Signal in minitest, you might:
+
+```ruby
+def test_signal_workflow
+  Temporalio::Testing::WorkflowEnvironment.start_time_skipping do |env|
+    worker = Temporalio::Worker.new(
+      env.client,
+      task_queue: "tq-#{SecureRandom.uuid}",
+      workflows: [SignalWorkflow]
+    )
+    worker.run do
+      handle = env.client.start_workflow(
+        SignalWorkflow,
+        id: "wf-#{SecureRandom.uuid}", task_queue: worker.task_queue
+      )
+      handle.signal(SignalWorkflow.some_signal)
+      assert_equal 'got signal', handle.result
+    end
+  end
+end
+```
+
+But how would you test the timeout part? Like so:
+
+```ruby
+def test_signal_workflow_timeout
+  Temporalio::Testing::WorkflowEnvironment.start_time_skipping do |env|
+    worker = Temporalio::Worker.new(
+      env.client,
+      task_queue: "tq-#{SecureRandom.uuid}",
+      workflows: [SignalWorkflow]
+    )
+    worker.run do
+      handle = env.client.start_workflow(
+        SignalWorkflow,
+        id: "wf-#{SecureRandom.uuid}", task_queue: worker.task_queue
+      )
+      # Advance 50 seconds
+      env.sleep(50)
+      assert_equal 'got timeout', handle.result
+    end
+  end
+end
+```
+
+### Mocking Activities
+
+When testing Workflows, often you don't want to actually run the Activities.
+Activities are just classes that extend `Temporalio::Activity::Definition`.
+Simply write different/empty/fake/asserting ones and pass those to the Worker to have different activities called during the test.
+
+## Testing Activities {#test-activities}
+
+Unit testing an Activity or any code that could run in an Activity is done via the `Temporalio::Testing::ActivityEnvironment` class.
+Simply instantiate the class, and any code inside the block to `run` will be invoked inside the activity context.
+Several things about the activity environment can be customized via parameters when constructing the environment including setting the info, providing a proc to call back on each heartbeat, setting the cancellation to be used, etc.
+
+## Replay test {#replay-test}
+
+Given a Workflow's history, it can be replayed locally to check for things like non-determinism errors.
+For example, assuming the `history_json` parameter below is given a JSON string of history exported from the CLI or web UI for workflow `MyWorkflow`, the following method will replay it:
+
+```ruby
+def replay_from_json(history_json)
+  # Create a replayer
+  replayer = Temporalio::Worker::WorkflowReplayer.new(workflows: [MyWorkflow])
+  # Replay the history
+  history = Temporalio::WorkflowHistory.from_history_json(history_json)
+  replayer.replay_workflow(history)
+end
+```
+
+If there is a non-determinism, this will raise an exception.
+
+Workflow history can be loaded from more than just JSON.
+It can be fetched individually from a Workflow handle, or even in a list.
+For example, the following code will check that all Workflow histories for a certain Workflow type (i.e. workflow class) are safe with the current Workflow code.
+
+```ruby
+# Create a replayer
+replayer = Temporalio::Worker::WorkflowReplayer.new(workflows: [MyWorkflow])
+# Replay all workflows from a list
+replayer.replay_workflows(client.list_workflows("WorkflowType = 'MyWorkflow'")).each do |result|
+  # Raise if any failed (could have just set raise_on_replay_failure: true, but this
+  # demonstrates iterating over the results)
+  raise result.replay_failure if result.replay_failure
+end
+```
+
+---
+
+## Versioning - Ruby SDK
+
+Since Workflow Executions in Temporal can run for long periods — sometimes months or even years — it's common to need to make changes to a Workflow Definition, even while a particular Workflow Execution is in progress.
+
+The Temporal Platform requires that Workflow code is [deterministic](/workflow-definition#deterministic-constraints).
+If you make a change to your Workflow code that would cause non-deterministic behavior on Replay, you'll need to use one of our Versioning methods to gracefully update your running Workflows.
+With Versioning, you can modify your Workflow Definition so that new executions use the updated code, while existing ones continue running the original version.
+There are two primary Versioning methods that you can use:
+
+- [Versioning with Patching](#ruby-sdk-patching-api). This method works by adding branches to your code tied to specific revisions. It applies a code change to new Workflow Executions while avoiding disruptive changes to in-progress ones.
+- [Worker Versioning](/production-deployment/worker-deployments/worker-versioning). The Worker Versioning feature allows you to tag your Workers and programmatically roll them out in versioned deployments, so that old Workers can run old code paths and new Workers can run new code paths.
+
+## Versioning with Patching {#ruby-sdk-patching-api}
+
+To understand why Patching is useful, it's helpful to first demonstrate cutting over an entire Workflow.
+
+### Workflow cutovers
+
+Since incompatible changes only affect open Workflow Executions of the same type, you can avoid determinism errors by creating a whole new Workflow when making changes.
+To do this, you can copy the Workflow Definition function, giving it a different name, and register both names with your Workers.
+
+For example, you would duplicate `MyWorkflow` as `MyWorkflowV2`:
+
+```ruby
+class MyWorkflow < Temporalio::Workflow::Definition
+  def execute
+    # ...
+  end
+end
+
+class MyWorkflowV2 < Temporalio::Workflow::Definition
+  def execute
+    # ...
+  end
+end
+```
+
+You would then need to update the Worker configuration, and any other identifier strings, to register both Workflow Types:
+
+```ruby
+client = Temporalio::Client.connect('localhost:7233', 'default')
+
+worker = Temporalio::Worker.new(
+  client:,
+  task_queue: 'my-task-queue',
+  workflows: [MyWorkflow, MyWorkflowV2]
+)
+```
+
+The downside of this method is that it requires you to duplicate code and to update any commands used to start the Workflow.
+This can become impractical over time.
+This method also does not provide a way to version any still-running Workflows -- it is essentially just a cutover, unlike Patching, which we will now demonstrate.
+
+### Adding a patch
+
+A Patch defines a logical branch in a Workflow for a specific change, similar to a feature flag.
+It applies a code change to new Workflow Executions while avoiding disruptive changes to in-progress ones.
+When you want to make substantive code changes that may affect existing Workflow Executions, create a patch. Note that there's no need to patch [Pinned Workflows](/worker-versioning).
+
+Suppose you have an initial Workflow that runs `PrePatchActivity`:
+
+```ruby
+class MyWorkflow < Temporalio::Workflow::Definition
+  def execute
+    result = Temporalio::Workflow.execute_activity(
+      PrePatchActivity,
+      start_to_close_timeout: 100
+    )
+
+    # ...
+  end
+end
+```
+
+Now, you want to update your code to run `PostPatchActivity` instead. This represents your desired end state.
+
+```ruby
+class MyWorkflow < Temporalio::Workflow::Definition
+  def execute
+    result = Temporalio::Workflow.execute_activity(
+      PostPatchActivity,
+      start_to_close_timeout: 100
+    )
+
+    # ...
+  end
+end
+```
+
+The problem is that you cannot deploy this new revision directly until you're certain there are no more running Workflows created using the `PrePatchActivity` code, otherwise you are likely to cause a nondeterminism error.
+Instead, you'll need to use the [`patched`](https://ruby.temporal.io/Temporalio/Workflow.html#patched-class_method) function to check which version of the code should be executed.
+
+Patching is a three-step process:
+
+1. Patch in any new, updated code using the `patched()` function. Run the new patched code alongside old code.
+2. Remove old code and use `deprecate_patch()` to mark a particular patch as deprecated.
+3. Once there are no longer any open Worklow Executions of the previous version of the code, remove `deprecatePatch()`.
+   Let's walk through this process in sequence.
+
+### Patching in new code
+
+Using `patched` inserts a marker into the Workflow History.
+During Replay, if a Worker encounters a history with that marker, it will fail the Workflow task when the Workflow code doesn't produce the same patch marker (in this case `my-patch`).
+This ensures you can safely deploy new code paths alongside the original branch.
+
+```ruby
+class MyWorkflow < Temporalio::Workflow::Definition
+  def execute
+    if Temporalio::Workflow.patched('my-patch')
+      result = Temporalio::Workflow.execute_activity(
+        PostPatchActivity,
+        start_to_close_timeout: 100
+      )
+    else
+      result = Temporalio::Workflow.execute_activity(
+        PrePatchActivity,
+        start_to_close_timeout: 100
+      )
+    end
+
+    # ...
+  end
+end
+```
+
+### Deprecating patches {#deprecated-patches}
+
+After ensuring that all Workflows started with `v1` code have left retention, you can [deprecate the patch](https://ruby.temporal.io/Temporalio/Workflow.html#deprecate_patch-class_method).
+
+Once your Workflows are no longer running the pre-patch code paths, you can deploy your code with `deprecate_patch()`.
+These Workers will be running the most up-to-date version of the Workflow code, which no longer requires the patch.
+The `deprecate_patch()` function works similarly to the `patched()` function by recording a marker in the Workflow history.
+This marker does not fail replay when Workflow code does not emit it.
+Deprecated patches serve as a bridge between the pre-patch code paths and the post-patch code paths, and are useful for avoiding errors resulting from patched code paths in your Workflow history.
+
+```ruby
+class MyWorkflow < Temporalio::Workflow::Definition
+  def execute
+    Temporalio::Workflow.deprecate_patch('my-patch')
+    result = Temporalio::Workflow.execute_activity(
+      PostPatchActivity,
+      start_to_close_timeout: 100
+    )
+
+    # ...
+  end
+end
+```
+
+### Removing a patch {#deploy-new-code}
+
+Once the pre-patch Workflows have left retention, you can then safely deploy Workers that no longer use either the `patched()` or `deprecate_patch()` calls:
+
+Patching allows you to make changes to currently running Workflows.
+It is a powerful method for introducing compatible changes without introducing non-determinism errors.
+
+### Testing a Workflow for replay safety
+
+To determine whether your Workflow your needs a patch, or that you've patched it successfully, you should incorporate [Replay Testing](/develop/ruby/testing-suite#replay-test).
+
+## Worker Versioning
+
+Temporal's [Worker Versioning](/production-deployment/worker-deployments/worker-versioning) feature allows you to tag your Workers and programmatically roll them out in Deployment Versions, so that old Workers can run old code paths and new Workers can run new code paths. This way, you can pin your Workflows to specific revisions, avoiding the need for patching.
+
+---
+
+## About Temporal SDKs
+
+Temporal SDKs (software development kits) are an open source collection of tools, libraries, and APIs that enable Temporal Application development.
+
+They offer a [Temporal Client](#temporal-client) to interact with the [Temporal Service](/temporal-service), APIs to develop your [Temporal Application](#temporal-application), and APIs to run horizontally scalable [Workers](/workers#worker).
+
+SDKs are more than just a development tool, however.
+The SDK APIs enable developers to write code in a particular pattern that mirrors real world processes.
+The SDK's internal implementation, working in collaboration with the Temporal Service, steps through that code, guaranteeing execution progression during application runtime.
+
+## Temporal Applications {#temporal-application}
+
+A Temporal Application is the code you write, comprised of [Workflow Definitions](/workflow-definition), [Activity Definitions](/workflow-definition), code used to configure [Temporal Clients](#temporal-client), and code used to configure and start [Workers](/workers#worker).
+Developers create Temporal Applications using an [official Temporal SDK](#official-sdks).
+
+Consider that the Workflow Definition code can be executed repeatedly.
+The Temporal Platform can concurrently support millions to billions of Workflow Executions, each of which representing an invoked Workflow Definition.
+
+Additionally, a Temporal Workflow Execution is both resumable and recoverable, and it can react to external events.
+
+- Resumable: The ability of a process to resume execution after suspending on an _awaitable_.
+- Recoverable: The ability of a process to resume execution after suspending due to a _failure_.
+- Reactive: The ability of a process to respond to external events.
+
+Hence, a Temporal Application can run for seconds or years in the presence of arbitrary load and failures.
+
+## Official SDKs {#official-sdks}
+
+**What are the officially supported SDKs?**
+
+Each Temporal SDK targets a specific programming language.
+
+- [Go SDK feature guides](/develop/go)
+- [Java SDK feature guides](/develop/java)
+- [PHP SDK feature guides](/develop/php)
+- [Python SDK feature guides](/develop/python/)
+- [TypeScript SDK feature guides](/develop/typescript/)
+- [.NET SDK feature guides](/develop/dotnet)
+- [Ruby SDK README](https://github.com/temporalio/sdk-ruby)
+
+Despite supporting multiple languages, and supporting many features, Temporal SDKs aim to make developers feel at home in their language.
+
+### Third-party SDKs
+
+The following third-party SDKs exist but are not supported in Temporal's documentation:
+
+- [Clojure](https://github.com/manetu/temporal-clojure-sdk) - from [@Manetu](https://github.com/manetu)
+- [Scala](https://github.com/vitaliihonta/zio-temporal) from [@vitaliihonta](https://github.com/vitaliihonta)
+- [Ruby](https://github.com/coinbase/temporal-ruby) from [@coinbase](https://github.com/coinbase)
+
+## Why use a Temporal SDK? {#why-use-an-sdk}
+
+Temporal SDKs empowers developers to concentrate on creating dependable and scalable business logic, alleviating the need to build home grown supervisor systems to ensure reliability and fault-tolerance. This is possible because the Temporal SDK provides a unified library that abstracts the intricacies of how Temporal handles distributed systems.
+
+### Development pattern
+
+By abstracting complexities and streamlining boilerplate code, developers can craft straightforward code that directly aligns with their business logic, enhancing code readability and bolstering developer productivity.
+
+Consider a bank loan application.
+Developers can design the business logic of a bank loan using the Temporal SDK.
+The Workflow defines the overarching business logic, encompassing tasks such as validating applicant information, credit checks, loan approval, and applicant notifications, as Activities.
+
+:::caution Do not copy and use code
+
+The following is pseudocode. For tested samples see your language SDK's developer's guide.
+
+:::
+
+```
+func LoanApplicationWorkflow {
+
+    sdk.ExecuteActivity(CreditCheck)
+
+    sdk.ExecuteActivity(AutomatedApproval)
+
+    sdk.ExecuteActivity(NotifyApplicant)
+
+    // ...
+}
+```
+
+For instance, Temporal SDKs have built-in support for handling failures, timeouts, and retries.
+In the event of an Activity failure, the SDK automatically initiates retries according to configurable policies established by the developer within the SDK. This streamlined process simplifies the integration of fault-tolerance mechanisms into applications.
+
+:::caution Do not copy and use code
+
+The following is pseudocode. For tested samples see your language SDK's developer's guide.
+
+:::
+
+```
+func LoanApplicationWorkflow {
+
+    options = {
+        MaxAttempts: 3,
+        StartToCloseTimeout: 30min,
+        HeartbeatTimeout: 10min,
+    }
+
+    sdk.ExecuteActivity(CreditCheck, options)
+
+    sdk.ExecuteActivity(AutomatedApproval)
+
+    sdk.ExecuteActivity(NotifyApplicant)
+
+    // ...
+}
+```
+
+### Replays
+
+Another quality of the SDKs lies in their ability to replay Workflow Executions, a complex operation that contributes significantly to the Platform's promised reliability.
+
+<CaptionedImage
+    src="/diagrams/replay-basic.svg"
+    title="The SDKs Replay code execution to continue from the last step" />
+
+We will delve into this idea more later, but for now, it signifies that the SDKs can automatically continue a process from the point of interruption, should a failure occur.
+This capability stems from the SDK's ability to persist each step the program takes.
+
+{/* - [Developing for Durable Execution using the Go SDK](/develop/go/durable-execution) */}
+
+## Temporal SDKs major components {#major-components}
+
+**What are the major components of Temporal SDKs?**
+
+Temporal SDKs offer developers the following:
+
+- A Temporal Client to communicate with a Temporal Service
+- APIs to develop application code (Workflows & Activities)
+- APIs to configure and run Workers
+
+<CaptionedImage
+    src="/diagrams/temporal-sdk-components.svg"
+    title="Temporal SDK components create a runtime across your environment and a Temporal Service" />
+
+Let's break down each one.
+
+### Temporal Client
+
+A Temporal Client acts as the bridge for communication between your applications and the Temporal Service.
+The Client performs key functions that facilitate the execution of, management of, and communication with Workflows.
+
+The most common operations that a Temporal Client enables you to perform are the following:
+
+- Get the result of Workflow Execution.
+- List Workflow Executions.
+- Query a Workflow Execution.
+- Signal a Workflow Execution.
+- Start a Workflow Execution.
+
+The following code is an example using the Go SDK.
+It showcases how to initialize a Temporal Client, create a connection to a local Temporal Service, and start a Workflow Execution:
+
+:::caution Do not copy and use code
+
+The following code is for example purposes only.
+For tested code samples and best practices, use your preferred language SDK's developer's guide.
+
+- [Go SDK Temporal Client feature guide](/develop/go/temporal-client)
+- [Java SDK Temporal Client feature guide](/develop/java/temporal-client)
+- [PHP SDK Temporal Client feature guide](/develop/php/temporal-client#connect-to-a-dev-cluster)
+- [Python SDK Temporal Client feature guide](/develop/python/temporal-client#connect-to-a-dev-cluster)
+- [TypeScript SDK Temporal Client feature guide](/develop/typescript/core-application#connect-to-a-dev-cluster)
+
+:::
+
+```go
+package main
+
+	"context"
+
+	"go.temporal.io/sdk/client"
+)
+
+func main() {
+	// Temporal Client setup code
+	c, err := client.NewClient(client.Options{})
+	if err != nil {
+		log.Fatalln("Unable to create client", err)
+	}
+	defer c.Close()
+	// Prepare Workflow option and parameters
+	workflowOptions := client.StartWorkflowOptions{
+		ID:        "loan-application-1",
+		TaskQueue: "loan-application-task-queue",
+	}
+	applicantDetails := ApplicantDetails{
+		// ...
+	}
+	// Start the Workflow
+	workflowRun, err := c.ExecuteWorkflow(context.Background(), workflowOptions, "loan-application-workflow", applicantDetails)
+	if err != nil {
+		// ...
+	}
+	// ...
+}
+```
+
+Developers can then use the Client as the main entry point for interacting with the application through Temporal.
+Using that Client, developers may for example start or Signal Workflows, Query a Workflow's state, etc.
+We can see in the example above how the developer has used `ExecuteWorkflow` API to start a Workflow.
+
+### APIs to Develop Workflows
+
+Workflows are defined as code: either a function or an object method, depending on the language.
+
+For example, the following is a valid Temporal Workflow in Go:
+
+:::caution Do not copy and use code
+
+The following code is for example purposes only.
+For tested code samples and best practices, use your preferred language SDK's developer's guide.
+
+:::
+
+```go
+func LoanApplication(ctx context.Context) (error) {
+    // ...
+	return nil
+}
+```
+
+The Workflow code uses Temporal SDK APIs to orchestrate the steps of the application.
+
+:::caution Do not copy and use code
+
+The following code is for example purposes only.
+For tested code samples and best practices, use your preferred language SDK's developer's guide.
+
+:::
+
+```go
+func LoanApplication(ctx workflow.Context, input *LoanApplicationWorkflowInput) (*LoanApplicationWorkflowResult, error) {
+	// ...
+	var result activities.CreditCheckResult
+	f := workflow.ExecuteActivity(ctx, a.CreditCheck, CreditCheckInput(*input))
+	err := f.Get(ctx, &result)
+	// ...
+	// Return the results
+	return &loanApplicationResults, nil
+}
+```
+
+A Workflow executes Activities (other functions that interact with external systems), handles and sends messages (Queries, Signals, Updates), and interacts with other Workflows.
+
+This Workflow code, while executing, can be paused, resumed, and migrated across physical machines without losing state.
+
+When a Workflow calls the API to execute an Activity, the Worker sends a [Command](https://docs.temporal.io/references/commands) back to the Temporal Service. The Temporal Service creates Activity Tasks in response which the same or a different Worker can then pick up and begin executing. In this way, the Worker and Temporal Service work together to incrementally execute Workflow code in a reliable way.
+We discuss this more in detail in [The SDK and Temporal Service relationship](/encyclopedia/temporal-sdks#sdk-and-cluster-relationship) section.
+
+The SDK APIs also enable developers to write code that more genuinely maps to their process. This is because without a specialized SDK, developers might have to write a lot of boilerplate code. This can lead to code that's hard to maintain, difficult to understand, or that doesn't directly correspond to the underlying business process.
+
+For example, the bank loan application Workflow might actually look like this:
+
+:::caution Do not copy and use code
+
+The following code is for example purposes only.
+For tested code samples and best practices, use your preferred language SDK's developer's guide.
+
+:::
+
+```go
+// LoanApplicationWorkflow is the workflow definition.
+func LoanApplicationWorkflow(ctx workflow.Context, applicantName string, loanAmount int) (string, error) {
+	// Step 1: Notify the applicant that the application process has started
+	err := workflow.ExecuteActivity(ctx, NotifyApplicantActivity, applicantName, "Application process started").Get(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+
+	// Step 2: Perform a credit check
+	var creditCheckResult string
+	err = workflow.ExecuteActivity(ctx, LoanCreditCheckActivity, loanAmount).Get(ctx, &creditCheckResult)
+	if err != nil {
+		return "", err
+	}
+
+	// Step 3: Perform an automatic approval check
+	var approvalCheckResult string
+	err = workflow.ExecuteActivity(ctx, AutomaticApprovalCheckActivity, creditCheckResult).Get(ctx, &approvalCheckResult)
+	if err != nil {
+		return "", err
+	}
+
+	// Step 4: Notify the applicant of the decision
+	var notificationResult string
+	err = workflow.ExecuteActivity(ctx, NotifyApplicantActivity, applicantName, approvalCheckResult).Get(ctx, &notificationResult)
+	if err != nil {
+		return "", err
+	}
+
+	return notificationResult, nil
+}
+```
+
+The level of abstraction that APIs offer enables the developer to focus on business logic without having to worry about the intricacies of distributed computing such as retries, or having to explicitly maintain a state machine and the intermediate state for each step of the process.
+
+Additionally, the state of the Workflow is automatically persisted so if a failure does occur, it resumes right where it left off.
+
+### APIs to create and manage Worker Processes
+
+Workers are responsible for executing Workflow and Activity code (application code). The SDK provides APIs for configuring and starting Workers, enabling developers to control how the code is executed.
+Workers are horizontally scalable, often run with systems like Kubernetes, and configured according to the application's needs.
+
+Here is an example of how you could initialize a Worker using the Go SDK.
+
+:::caution Do not copy and use code
+
+The following code is for example purposes only.
+For tested code samples and best practices, use your preferred language SDK's developer's guide.
+
+:::
+
+```go
+func main() {
+    // Create the client object just once per process
+    c, err := client.NewClient(client.Options{})
+    if err != nil {
+        log.Fatalln("Unable to create Temporal client", err)
+    }
+    defer c.Close()
+
+    // Create the Worker instance
+    w := worker.New(c, "loan-application-task-queue", worker.Options{})
+
+    // Register the workflow and activity with the worker
+    w.RegisterWorkflow(LoanApplicationWorkflow)
+    w.RegisterActivity(LoanCreditCheck)
+
+    // Start listening to the Task Queue
+    err = w.Run(worker.InterruptCh())
+    if err != nil {
+        log.Fatalln("Unable to start Worker", err)
+    }
+}
+```
+
+The Worker polls on the specified Task Queue, processing those Tasks, and reporting the results back to the Temporal Service. They execute both the Workflows and Activities, and the SDK ensures that they perform these tasks efficiently and reliably.
+
+### APIs to customize Activity Execution behavior
+
+Activities in Temporal are individual units of work that often represent non-deterministic parts of the code logic, such as querying a database or calling an external service. The SDK provides APIs to customize the behavior of an Activity Execution.
+
+By default, if an Activity attempts to communicate with another system and encounters a transient failure like a network issue, Temporal ensures the Activity is tried again automatically.
+
+However, Temporal enables developers to control a variety of timeouts, a Retry Policy, Heartbeat monitoring, and asynchronous completion.
+
+The following code is an example of a custom set of Activity Execution options that affect the timeout and retry behavior of the execution, should the Activity encounter a failure.
+
+:::caution Do not copy and use code
+
+The following code is for example purposes only.
+For tested code samples and best practices, use your preferred language SDK's developer's guide.
+
+:::
+
+```go
+// LoanApplicationWorkflow is the Workflow Definition.
+func LoanApplicationWorkflow(ctx workflow.Context, applicantName string, loanAmount int) (string, error) {
+    // ...
+    var creditCheckResult string
+    // set a Retry Policy
+    ao := workflow.ActivityOptions{
+		ScheduleToCloseTimeout: time.Hour,
+		HeartbeatTimeout:       time.Minute,
+		RetryPolicy:            &temporal.RetryPolicy{
+			InitialInterval:    time.Second,
+			BackoffCoefficient: 2,
+			MaximumInterval:    time.Minute,
+			MaximumAttempts:    5,
+		},
+	}
+    ctx = workflow.WithActivityOptions(ctx, ao)
+    err = workflow.ExecuteActivity(ctx, LoanCreditCheckActivity, loanAmount).Get(ctx, &creditCheckResult)
+    if err != nil {
+        return "", err
+    }
+	// ...
+    return notificationResult, nil
+}
+
+// LoanCreditCheckActivity is an Activity function that performs a credit check.
+func LoanCreditCheckActivity(ctx context.Context, loanAmount int) (string, error) {
+	// ... your logic here ...
+	return "Credit check passed", nil
+}
+```
+
+## The SDK and Temporal Service relationship {#sdk-and-cluster-relationship}
+
+**How do the Temporal SDKs work with the Temporal Service?**
+
+The Temporal Service functions more as a choreographer than a conductor. Rather than directly assigning tasks to Workers, the Temporal Service arranges the Tasks into a Task Queue while Workers poll the Task Queue. Developers may create a fleet of Workers and tune them so that a Task is picked up as soon as it is available. If a Worker goes down, Tasks can wait until the next Worker is available.
+
+A Workflow might request to execute an Activity, start a Timer, or start a Child Workflow, each of which translates into a Command, dispatched to the Temporal Service.
+In addition to acting on these Commands, the Temporal Service documents that interaction by appending their corresponding Events into to the Workflow Execution's Event History.
+
+Take for instance the call to execute an Activity. When a Workflow invokes it, the Worker doesn't immediately execute that Activity code. Instead, it generates a ScheduleActivityTask Command, dispatching it to the Cluster. In response, the Cluster queues up a new Activity Task. Only when a Worker finds itself free, it collects the task and begins executing the Activity code.
+
+The Temporal Service persists Workflow Execution Event History, so that if there is a failure, the SDK Worker is able to Replay the execution and resume where it left off.
+
+This is where the deterministic constraints of the Workflow code comes into play, requiring the use of Activities to create side effects and interact with the outside world.
+
+Let's look at an example Workflow with a single Activity.
+
+```go
+func LoanApplication(ctx workflow.Context, input *LoanApplicationWorkflowInput) (*LoanApplicationWorkflowResult, error) {
+
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+	})
+
+	var result activities.NotifyApplicantActivityResult
+	f := workflow.ExecuteActivity(ctx, a.NotifyApplicantActivity, NotifyApplicantActivityInput(*input))
+
+	err := f.Get(ctx, &result)
+
+	// Return the results
+	return &l.LoanApplicationState, nil
+}
+
+type Activities struct {}
+
+func (a *Activities) NotifyApplicantActivity(ctx context.Context, input *NotifyApplicantActivityInput) (*NotifyApplicantActivityResult, error) {
+	var result NotifyApplicantActivityResult
+
+	// Call the thirdparty API and handle the result
+
+	return &result, err
+}
+```
+
+The Activity above is performing a single call to an external API. Since the call can fail due to transient issues, we define it outside of the Workflow and provide it with retry options.
+
+When you create a new Worker process, the Worker creates a long-lasting connection to the Temporal Service, polling a Task Queue for Tasks that related to the code it is capable of executing.
+
+<CaptionedImage
+    src="/diagrams/how-sdk-works-1.svg"
+    title="A Worker long polls for Tasks" />
+
+Although the Worker is now running, unless a Workflow is explicitly started, the Task Queue doesn't have any Tasks on it and so, no code executes.
+We can use a Temporal Client (available in Temporal SDKs and the Temporal CLI) to start a new Workflow.
+
+<CaptionedImage
+    src="/diagrams/how-sdk-works-2.svg"
+    title="Start a Workflow using a Temporal Client" />
+
+Starting a Workflow Execution creates a new Event, WorkflowExecutionStarted, and adds it to the Workflow Execution's Event History.
+
+The Temporal Service then schedules a Workflow Task by adding it to the Task Queue.
+When the Worker has capacity, it picks up this Task, and begin executing code.
+
+Each step of the Task (e.g. Scheduled, Started, and Completed), gets recorded into the Event History.
+
+- Scheduled means that the Temporal Service has added a Task to the Task Queue.
+- Started means that the Worker has dequeued the Task.
+- Completed means that the Worker finished executing the Task by responding to the Temporal Service.
+
+When the call to invoke the Activity is evaluated, the Worker suspends executing the code and sends a Command to the Temporal Service to schedule an Activity Task.
+
+<CaptionedImage
+    src="/diagrams/how-sdk-works-3.svg"
+    title="Worker suspends code execution and sends a Command to the Temporal Service" />
+
+When the Worker process can perform more work, it picks up the Activity Task and begins executing the Activity code, which includes the call to the external API.
+
+If the Activity fails, say the API goes down, Temporal will automatically retry the Activity with one second between intervals, as the configurations have defined, an infinite amount of times until the Activity succeeds or is canceled.
+
+In the case where the calls succeeds, and the code completes, the Worker tells the Temporal Service the Activity Task completed.
+
+<CaptionedImage
+    src="/diagrams/how-sdk-works-activity.svg"
+    title="The Worker reports that the Activity Execution completed" />
+
+Included is any data that was returned from the Activity (results of the API call), which is then persisted in the Workflow Execution Event History, and is now accessible to the Workflow code.
+
+The Temporal Service creates a new Workflow Task which the Worker picks up.
+
+<CaptionedImage
+    src="/diagrams/how-sdk-works-1.svg"
+    title="The Worker picks up the new Task" />
+
+This is when the SDK Worker Replays the Workflow code, uses the Event History as guidance on what to expect. If the Replay encounters an Event that doesn't match up with what is expected from the code, a [non-determinism](/references/errors#non-deterministic-error) error gets thrown.
+
+If there is alignment, the Worker continues evaluating code.
+
+Assuming the Activity Execution is successful, the Workflow now has the result of the Activity and the Worker is able to finish evaluating and executing the Workflow code, responding to the Temporal Service when complete.
+
+The result of the Workflow can now be retrieved using a Temporal Client.
+
+<CaptionedImage
+    src="/diagrams/how-sdk-works-4.svg"
+    title="The Temporal Client can now access the result of the Workflow" />
+
+And that’s how a Temporal Worker and Temporal Service work together.
+
+---
+
+## Core application - Temporal feature
+
+**Workflows**, **Activities**, and **Workers** form the core parts of a Temporal Application.
+
+**Workflows**: A Workflow defines the overall flow of the application.
+You write it in your programming language of choice using the Temporal SDK.
+Conceptually, a Workflow specifies a sequence of steps and orchestrates the execution of Activities.
+
+**Activities**: An Activity is a method or function that encapsulates business logic prone to failure (e.g., calling a service that may go down).
+The system can automatically retry these Activities upon some failures.
+Activities perform a single, well-defined action, such as calling another service, transcoding a media file, or sending an email message.
+
+**Workers**: A Worker executes your Workflow and Activity code.
+
+**Follow one of our tutorials to [Get started](https://learn.temporal.io/getting_started/) learning how to develop Workflows and Activities and run them in Worker Processes.**
+
+Or jump straight to a Temporal SDK feature guide:
+
+<RelatedReadContainer>
+  <RelatedReadItem path="/develop/go/core-application" text="Go SDK Core application feature guide" archetype="feature-guide" />
+  <RelatedReadItem path="/develop/java/core-application" text="Java SDK Core application feature guide" archetype="feature-guide" />
+  <RelatedReadItem path="/develop/php/core-application" text="PHP SDK Core application feature guide" archetype="feature-guide" />
+  <RelatedReadItem path="/develop/python/core-application" text="Python SDK Core application feature guide" archetype="feature-guide" />
+  <RelatedReadItem path="/develop/typescript/core-application#connect-to-a-dev-cluster" text="TypeScript SDK Core application feature guide" archetype="feature-guide" />
+  <RelatedReadItem path="/develop/dotnet/core-application" text=".NET SDK Core application feature guide" archetype="feature-guide" />
+</RelatedReadContainer>
+
+For a deep dive into Temporal Workflows, Activities, and Workers, visit the following Temporal Encyclopedia pages or enroll in one of [our courses](https://learn.temporal.io/courses/).
+
+- [Temporal Workflows](/workflows)
+- [Temporal Activities](/activities)
+- [Temporal Workers](/workers)
+
+---
+
+## Quickstarts
+
+
+Choose your language to get started quickly.
+
+<QuickstartCards
+  items={[
+    { href: "/develop/go/set-up-your-local-go", title: "Go", description: "Install the Go SDK and run a Hello World Workflow in Go." },
+    { href: "/develop/java/set-up-your-local-java", title: "Java", description: "Install the Java SDK and run a Hello World Workflow in Java." },
+    { href: "/develop/ruby/set-up-local-ruby", title: "Ruby", description: "Install the Ruby SDK and run a Hello World Workflow in Ruby." },
+    { href: "/develop/python/set-up-your-local-python", title: "Python", description: "Install the Python SDK and run a Hello World Workflow in Python." },
+    { href: "/develop/typescript/set-up-your-local-typescript", title: "TypeScript", description: "Install the TypeScript SDK and run a Hello World Workflow in TypeScript." },
+    { href: "/develop/dotnet/set-up-your-local-dotnet", title: ".NET", description: "Install the .NET SDK and run a Hello World Workflow in C#." },
+  ]}
+/>

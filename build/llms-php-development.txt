@@ -1,0 +1,4224 @@
+# Temporal PHP SDK Complete Development Guide
+
+> Build invincible applications
+
+This file contains all documentation content in a single document following the llmstxt.org standard.
+
+## Environment Configuration
+
+Temporal Environment Configuration is a feature that allows you to configure a Temporal Client using environment variables and/or TOML configuration files, rather than setting connection options programmatically in your code. This decouples connection settings from application logic, making it easier to manage different environments (like development, staging, and production) without code changes.
+
+:::tip SUPPORT, STABILITY, and DEPENDENCY INFO
+
+This feature is currently in Pre-release in the Go and Python Temporal SDKs, as well as the Temporal CLI.
+
+:::
+
+## Configuration Methods
+
+You can configure your client using a TOML file, environment variables, or a combination of both. The configuration is loaded with a specific order of precedence:
+
+1. Environment Variables: These have the highest precedence. 
+If a setting is defined as an environment variable, it will always override any value set in a configuration file (useful for dynamic environments or for providing secrets).  
+2. TOML Configuration File: A TOML file can be used to define one or more configuration "profiles". This file is located by checking the following sources in order:  
+   1. The path specified by the TEMPORAL\_CONFIG\_FILE environment variable.  
+   2. The default configuration path: \~/.config/temporalio/temporal.toml (or the equivalent standard user config directory on your OS).
+
+## Configuration Profiles
+
+You can use configuration “profiles” to maintain separate configurations within a single file (for different environments). The "default" profile is used unless another is specified via the TEMPORAL\_PROFILE environment variable or in the SDK's load options. If a specific profile is requested but doesn’t exist, an error will be returned.
+
+## Configuration Settings
+
+The following table details all available settings, their corresponding environment variables, and their TOML file paths.
+
+| Setting | Environment Variable | TOML Path | Description |
+| :---- | :---- | :---- | :---- |
+| Configuration File Path | TEMPORAL\_CONFIG\_FILE | **NA** | Path to the TOML configuration file |
+| Server Address | TEMPORAL\_ADDRESS | profile.\<name\>.address | The host and port of the Temporal Frontend service (e.g., "localhost:7233"). |
+| Namespace | TEMPORAL\_NAMESPACE | profile.\<name\>.namespace | The Temporal Namespace to connect to. |
+| API Key | TEMPORAL\_API\_KEY | profile.\<name\>.api\_key | An API key for authentication. If present, TLS is enabled by default. |
+| Enable/Disable TLS | TEMPORAL\_TLS | profile.\<name\>.tls.disabled | Set to "true" to enable TLS, "false" to disable. In TOML, disabled \= true turns TLS off. |
+| Client Certificate | TEMPORAL\_TLS\_CLIENT\_CERT\_DATA / \_PATH | profile.\<name\>.tls.client\_cert\_data / \_path | The client's public TLS certificate. Can be provided as raw PEM data or a file path. |
+| Client Key | TEMPORAL\_TLS\_CLIENT\_KEY\_DATA / \_PATH | profile.\<name\>.tls.client\_key\_data / \_path | The client's private TLS key. Can be provided as raw PEM data or a file path. |
+| Server CA Cert | TEMPORAL\_TLS\_SERVER\_CA\_CERT\_DATA / \_PATH | profile.\<name\>.tls.server\_ca\_cert\_path / \_data | The Certificate Authority certificate for the server. Used to verify the server's cert. |
+| TLS Server Name | TEMPORAL\_TLS\_SERVER\_NAME | profile.\<name\>.tls.server\_name | Overrides the server name used for SNI (Server Name Indication) in the TLS handshake. |
+| Disable Host Verification | TEMPORAL\_TLS\_DISABLE\_HOST\_VERIFICATION | profile.\<name\>.tls.disable\_host\_verification | A boolean (true/false) to disable server hostname verification. Use with caution. Not supported by all SDKs. |
+| Codec Endpoint | TEMPORAL\_CODEC\_ENDPOINT | profile.\<name\>.codec.endpoint | The endpoint for a remote data converter. Not supported by all SDKs (where supported, not applied by default). Intended mostly for CLI use. |
+| Codec Auth | TEMPORAL\_CODEC\_AUTH | profile.\<name\>.codec.auth | The authorization header value for the remote data converter. |
+| gRPC Metadata | TEMPORAL\_GRPC\_META\_\* | profile.\<name\>.grpc\_meta | Sets gRPC headers. The part after \_META\_ becomes the header key (e.g., \_SOME\_KEY \-\> some-key). |
+
+## TOML Configuration Example
+
+Here is an example temporal.toml file that defines two profiles: default for local development and prod for production.
+
+```textproto
+# Default profile for local development
+[profile.default]
+address = "localhost:7233"
+namespace = "default"
+
+# Optional: Add custom gRPC headers
+[profile.default.grpc_meta]
+my-custom-header = "development-value"
+trace-id = "dev-trace-123"
+
+# Production profile for Temporal Cloud
+[profile.prod]
+address = "your-namespace.a1b2c.tmprl.cloud:7233"
+namespace = "your-namespace"
+api_key = "your-api-key-here"
+
+# TLS configuration for production
+[profile.prod.tls]
+# TLS is auto-enabled when this TLS config or API key is present, but you can configure it explicitly
+# disabled = false
+# Use certificate files for mTLS
+client_cert_path = "/etc/temporal/certs/client.pem"
+client_key_path = "/etc/temporal/certs/client.key"
+
+# Custom headers for production
+[profile.prod.grpc_meta]
+environment = "production"
+service-version = "v1.2.3"
+
+# Staging profile with inline certificate data
+[profile.staging]
+address = "staging.temporal.example.com:7233"
+namespace = "staging"
+
+[profile.staging.tls]
+# Example of providing certificate data directly (base64 or PEM format)
+client_cert_data = """-----BEGIN CERTIFICATE-----
+MIICertificateDataHere...
+-----END CERTIFICATE-----"""
+client_key_data = """-----BEGIN PRIVATE KEY-----
+MIIPrivateKeyDataHere...
+-----END PRIVATE KEY-----"""
+```
+
+## CLI Integration
+
+The Temporal CLI tool includes temporal config commands that allow you to read and write to the TOML configuration file. This provides a convenient way to manage your connection profiles without manually editing the file.
+
+* temporal config get \<property\>: Reads a specific value from the current profile.  
+* temporal config set \<property\> \<value\>: Sets a property in the current profile.  
+* temporal config delete \<property\>: Deletes a property from the current profile.  
+* temporal config list: Lists all available profiles in the config file.
+
+These CLI commands directly manipulate the temporal.toml file. 
+This differs from the SDKs, which only *read* from the file and environment at runtime to establish a client connection. 
+The CLI is a tool for managing the configuration source, while the SDKs are consumers of that configuration. 
+You can select a profile for the CLI to use with the \--profile flag (for example, temporal \--profile prod ...).
+
+CLI Usage Example
+
+```textproto
+# Set a specific property for the current profile
+temporal config set --prop address --value "prod.temporal.io:7233"
+
+# Delete a property for the current profile
+temporal config delete --prop tls.client_cert_path
+
+# Get a specific property for the current profile
+temporal config get --prop address
+
+# Get all settings for the current profile
+temporal config get
+
+# Use a specific profile
+temporal --profile prod config get --prop address
+
+# List all profiles
+temporal config list
+
+# Connect to a client with the default profile, list its workflows
+temporal workflow list
+
+# Connect to a client with the 'prod' profile, list its workflows
+temporal --profile prod workflow list
+
+# Start a workflow using the 'prod' profile
+temporal --profile prod workflow start \
+--type YourWorkflow \
+--task-queue your-task-queue \
+--input '"your-workflow-input"'
+```
+
+## SDK Usage Example (Python)
+
+The following Python examples demonstrate how to use `temporalio.envconfig` to load configuration from environment variables and TOML files.
+
+### Load the default profile
+
+The most common use case is to load the "default" profile from environment variables and the default TOML file location (`~/.config/temporalio/temporal.toml`). The `ClientConfigProfile.load()` method handles this automatically. Any `TEMPORAL_*` environment variables will override settings from the TOML file.
+
+```py
+
+from temporalio.client import Client
+from temporalio.envconfig import ClientConfigProfile
+
+async def main():
+    # Load the "default" profile from default locations and environment variables.
+    default_profile = ClientConfigProfile.load()
+    connect_config = default_profile.to_client_connect_config()
+
+    # Connect to the client using the loaded configuration.
+    client = await Client.connect(**connect_config)
+    print(f"✅ Client connected to {client.target} in namespace '{client.namespace}'")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### Load a specific profile by name
+
+If your TOML configuration file contains multiple profiles, you can select one by passing its name to `ClientConfigProfile.load(profile="<your-profile-name>")`.
+
+```py
+
+from temporalio.client import Client
+from temporalio.envconfig import ClientConfigProfile
+
+async def main():
+    # Load a specific, named profile from default locations.
+    # This requires a [profile.prod] section in your TOML file.
+    prod_profile = ClientConfigProfile.load(profile="prod")
+    connect_config = prod_profile.to_client_connect_config()
+
+    # Connect to the client using the loaded configuration.
+    client = await Client.connect(**connect_config)
+    print(f"✅ Client connected to {client.target} in namespace '{client.namespace}'")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### Load configuration from a custom file path
+
+To load configuration from a non-standard file location, you can use the `ClientConfig.load_client_connect_config()` shorthand. This is useful if you store application-specific configurations separately.
+
+```py
+
+from pathlib import Path
+from temporalio.client import Client
+from temporalio.envconfig import ClientConfig
+
+async def main():
+    # This file would need to exist on your filesystem.
+    config_file = Path.home() / ".config" / "my-app" / "temporal.toml"
+
+    # Use ClientConfig.load_client_connect_config as a convenient shorthand for
+    # loading a profile from a specific file and preparing it for connection.
+    connect_config = ClientConfig.load_client_connect_config(
+        config_file=str(config_file),
+    )
+
+    # Connect to the client using the loaded configuration.
+    client = await Client.connect(**connect_config)
+    print(f"✅ Client connected to {client.target} in namespace '{client.namespace}'")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### Override configuration programmatically
+
+You can also load a base configuration and then override specific settings programmatically in your code. The loaded configuration is a dictionary, so you can modify it before passing it to `Client.connect()`.
+
+```py
+
+from temporalio.client import Client
+from temporalio.envconfig import ClientConfig
+
+async def main():
+    # Load the default profile configuration.
+    connect_config = ClientConfig.load_client_connect_config()
+
+    # Apply custom configuration overrides.
+    print("Applying custom configuration overrides...")
+    connect_config["target_host"] = "localhost:7233"
+    connect_config["namespace"] = "test-namespace"
+
+    # Connect to the client using the modified configuration.
+    client = await Client.connect(**connect_config)
+    print(f"✅ Client connected to {client.target} in namespace '{client.namespace}'")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+## SDK Usage Example (Go)
+
+The following Go examples demonstrate how to use `envconfig` to load configuration from different sources to connect a client.
+
+### Load the default profile
+
+The most common use case is to load the "default" profile from environment variables and the default TOML file location (`~/.config/temporalio/temporal.toml`). The `envconfig.MustLoadDefaultClientOptions()` function handles this automatically. Any `TEMPORAL_*` environment variables will override settings from the TOML file.
+
+```go
+package main
+
+	"fmt"
+	"log"
+
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/contrib/envconfig"
+)
+
+func main() {
+	// Loads the "default" profile from the standard location and environment variables.
+	c, err := client.Dial(envconfig.MustLoadDefaultClientOptions())
+	if err != nil {
+		log.Fatalf("Failed to create client: %v", err)
+	}
+	defer c.Close()
+
+	fmt.Printf("✅ Connected to Temporal namespace %q on %s\n", c.Options().Namespace, c.Options().HostPort)
+}
+```
+
+### Load a specific profile by name
+
+If your TOML configuration file contains multiple profiles, you can select one by passing its name in `envconfig.LoadClientOptionsRequest`.
+
+```go
+package main
+
+	"fmt"
+	"log"
+
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/contrib/envconfig"
+)
+
+func main() {
+	// Load a specific profile from the TOML config file.
+	// This requires a [profile.prod] section in your config.
+	opts, err := envconfig.LoadClientOptions(envconfig.LoadClientOptionsRequest{
+		ConfigFileProfile: "prod",
+	})
+	if err != nil {
+		log.Fatalf("Failed to load 'prod' profile: %v", err)
+	}
+
+	c, err := client.Dial(opts)
+	if err != nil {
+		log.Fatalf("Failed to connect using 'prod' profile: %v", err)
+	}
+	defer c.Close()
+
+	fmt.Printf("✅ Connected to Temporal namespace %q on %s using 'prod' profile\n", c.Options().Namespace, c.Options().HostPort)
+}
+```
+
+### Load configuration from a custom file path
+
+To load configuration from a non-standard file location, specify the path in `envconfig.LoadClientOptionsRequest`. This is useful if you store application-specific configurations separately.
+
+```go
+package main
+
+	"fmt"
+	"log"
+
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/contrib/envconfig"
+)
+
+func main() {
+	// Replace with the actual path to your TOML file.
+	configFilePath := "/Users/yourname/.config/my-app/temporal.toml"
+
+	opts, err := envconfig.LoadClientOptions(envconfig.LoadClientOptionsRequest{
+		ConfigFilePath: configFilePath,
+	})
+	if err != nil {
+		log.Fatalf("Failed to load client config from custom file: %v", err)
+	}
+
+	c, err := client.Dial(opts)
+	if err != nil {
+		log.Fatalf("Failed to connect using custom config file: %v", err)
+	}
+	defer c.Close()
+
+	fmt.Printf("✅ Connected using custom config at: %s\n", configFilePath)
+}
+```
+
+### Override configuration programmatically
+
+You can also load a base configuration and then override specific settings programmatically in your code. The loaded `client.Options` struct can be modified before passing it to `client.Dial()`.
+
+```go
+package main
+
+	"fmt"
+	"log"
+
+	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/contrib/envconfig"
+)
+
+func main() {
+	// Load the base configuration (e.g., from the default profile).
+	opts := envconfig.MustLoadDefaultClientOptions()
+
+	// Apply overrides programmatically.
+	opts.HostPort = "localhost:7233"
+	opts.Namespace = "test-namespace"
+
+	c, err := client.Dial(opts)
+	if err != nil {
+		log.Fatalf("Failed to connect with overridden options: %v", err)
+	}
+	defer c.Close()
+
+	fmt.Printf("✅ Connected with overridden config to: %s in namespace: %s\n", opts.HostPort, opts.Namespace)
+}
+```
+
+---
+
+## Asynchronous Activity Completion - PHP SDK
+
+## How to asynchronously complete an Activity {#asynchronous-activity-completion}
+
+[Asynchronous Activity Completion](/activity-execution#asynchronous-activity-completion) enables the Activity Function to return without the Activity Execution completing.
+
+There are three steps to follow:
+
+1. The Activity provides the external system with identifying information needed to complete the Activity Execution.
+   Identifying information can be a [Task Token](/activity-execution#task-token), or a combination of Namespace, Workflow Id, and Activity Id.
+2. The Activity Function completes in a way that identifies it as waiting to be completed by an external system.
+3. The Temporal Client is used to Heartbeat and complete the Activity.
+
+Sometimes Workflows need to perform certain operations in parallel.
+
+Invoking activity stub without the use of `yield` will return the Activity result promise which can be resolved at later moment.
+Calling `yield` on promise blocks until a result is available.
+
+> Activity promise also exposes `then` method to construct promise chains.
+> Read more about Promises [here](https://github.com/reactphp/promise).
+
+Alternatively you can explicitly wrap your code (including `yield` constucts) using `Workflow::async` which will execute nested code in parallel with main Workflow code.
+Call `yeild` on Promise returned by `Workflow::async` to merge execution result back to primary Workflow method.
+
+```php
+public function greet(string $name): \Generator
+{
+    // Workflow::async runs it's activities and child workflows in a separate coroutine. Use keyword yield to merge
+    // it back to parent process.
+
+    $first = Workflow::async(
+        function () use ($name) {
+            $hello = yield $this->greetingActivity->composeGreeting('Hello', $name);
+            $bye = yield $this->greetingActivity->composeGreeting('Bye', $name);
+
+            return $hello . '; ' . $bye;
+        }
+    );
+
+    $second = Workflow::async(
+        function () use ($name) {
+            $hello = yield $this->greetingActivity->composeGreeting('Hola', $name);
+            $bye = yield $this->greetingActivity->composeGreeting('Chao', $name);
+
+            return $hello . '; ' . $bye;
+        }
+    );
+
+    // blocks until $first and $second complete
+    return (yield $first) . "\n" . (yield $second);
+}
+```
+
+**Async completion**
+
+There are certain scenarios when moving on from an Activity upon completion of its function is not possible or desirable.
+For example, you might have an application that requires user input to complete the Activity.
+You could implement the Activity with a polling mechanism, but a simpler and less resource-intensive implementation is to asynchronously complete a Temporal Activity.
+
+There are two parts to implementing an asynchronously completed Activity:
+
+1. The Activity provides the information necessary for completion from an external system and notifies the Temporal service that it is waiting for that outside callback.
+2. The external service calls the Temporal service to complete the Activity.
+
+The following example demonstrates the first part:
+
+<!--SNIPSTART samples-php-async-activity-completion-activity-class-->
+
+[app/src/AsyncActivityCompletion/GreetingActivity.php](https://github.com/temporalio/samples-php/blob/main/app/src/AsyncActivityCompletion/GreetingActivity.php)
+
+```php
+class GreetingActivity implements GreetingActivityInterface
+{
+    private LoggerInterface $logger;
+
+    public function __construct()
+    {
+        $this->logger = new Logger();
+    }
+    /**
+     * Demonstrates how to implement an Activity asynchronously.
+     * When {@link Activity::doNotCompleteOnReturn()} is called,
+     * the Activity implementation function that returns doesn't complete the Activity.
+     */
+    public function composeGreeting(string $greeting, string $name): string
+    {
+        // In real life this request can be executed anywhere. By a separate service for example.
+        $this->logger->info(sprintf('GreetingActivity token: %s', base64_encode(Activity::getInfo()->taskToken)));
+        // Send the taskToken to the external service that will complete the Activity.
+        // Return from the Activity a function indicating that Temporal should wait
+        // for an async completion message.
+        Activity::doNotCompleteOnReturn();
+        // When doNotCompleteOnReturn() is invoked the return value is ignored.
+        return 'ignored';
+    }
+}
+```
+
+<!--SNIPEND-->
+
+The following code demonstrates how to complete the Activity successfully using `WorkflowClient`:
+
+<!--SNIPSTART samples-php-async-activity-completion-completebytoken-->
+
+[app/src/AsyncActivityCompletion/CompleteCommand.php](https://github.com/temporalio/samples-php/blob/main/app/src/AsyncActivityCompletion/CompleteCommand.php)
+
+```php
+$client = $this->workflowClient->newActivityCompletionClient();
+// Complete the Activity.
+$client->completeByToken(
+    base64_decode($input->getArgument('token')),
+    $input->getArgument('message')
+);
+```
+
+<!--SNIPEND-->
+
+To fail the Activity, you would do the following:
+
+```php
+// Fail the Activity.
+$activityClient->completeExceptionallyByToken($taskToken, new \Error("activity failed"));
+```
+
+---
+
+## Interrupt a Workflow - PHP SDK
+
+## Cancel an Activity from a Workflow {#cancel-an-activity}
+
+Canceling an Activity from within a Workflow requires that the Activity Execution sends Heartbeats and sets a Heartbeat Timeout.
+If the Heartbeat is not invoked, the Activity cannot receive a cancellation request.
+When any non-immediate Activity is executed, the Activity Execution should send Heartbeats and set a [Heartbeat Timeout](/encyclopedia/detecting-activity-failures#heartbeat-timeout) to ensure that the server knows it is still working.
+
+When an Activity is canceled, an error is raised in the Activity at the next available opportunity.
+If cleanup logic needs to be performed, it can be done in a `finally` clause or inside a caught cancel error.
+However, for the Activity to appear canceled the exception needs to be re-raised.
+
+:::note
+
+Unlike regular Activities, [Local Activities](/local-activity) can be canceled if they don't send Heartbeats.
+Local Activities are handled locally, and all the information needed to handle the cancellation logic is available in the same Worker process.
+
+:::
+
+---
+
+## Child Workflows - PHP SDK
+
+## How to start a Child Workflow Execution {#child-workflows}
+
+A [Child Workflow Execution](/child-workflows) is a Workflow Execution that is scheduled from within another Workflow using a Child Workflow API.
+
+When using a Child Workflow API, Child Workflow related Events ([StartChildWorkflowExecutionInitiated](/references/events#startchildworkflowexecutioninitiated), [ChildWorkflowExecutionStarted](/references/events#childworkflowexecutionstarted), [ChildWorkflowExecutionCompleted](/references/events#childworkflowexecutioncompleted), etc...) are logged in the Workflow Execution Event History.
+
+Always block progress until the [ChildWorkflowExecutionStarted](/references/events#childworkflowexecutionstarted) Event is logged to the Event History to ensure the Child Workflow Execution has started.
+After that, Child Workflow Executions may be abandoned using the _Abandon_ [Parent Close Policy](/parent-close-policy) set in the Child Workflow Options.
+
+To be sure that the Child Workflow Execution has started, first call the Child Workflow Execution method on the instance of Child Workflow future, which returns a different future.
+
+Then get the value of an object that acts as a proxy for a result that is initially unknown, which is what waits until the Child Workflow Execution has spawned.
+
+Besides Activities, a Workflow can also start other Workflows.
+
+`Workflow::executeChildWorkflow` and `Workflow::newChildWorkflowStub` enables the scheduling of other Workflows from within a Workflow's implementation.
+The parent Workflow has the ability to monitor and impact the lifecycle of the Child Workflow, similar to the way it does for an Activity that it invoked.
+
+```php
+// Use one stub per child workflow run
+$child = Workflow::newChildWorkflowStub(
+    ChildWorkflowInterface::class,
+    ChildWorkflowOptions::new()
+        // Do not specify WorkflowId if you want Temporal to generate a unique Id
+        // for the child execution.
+        ->withWorkflowId('BID-SIMPLE-CHILD-WORKFLOW')
+        ->withExecutionStartToCloseTimeout(DateInterval::createFromDateString('30 minutes'))
+);
+
+// This is a non blocking call that returns immediately.
+// Use yield $child->workflowMethod(name) to call synchronously.
+$promise = $child->workflowMethod('value');
+
+// Do something else here.
+try{
+    $value = yield $promise;
+} catch(TemporalException $e) {
+    $logger->error('child workflow failed');
+    throw $e;
+}
+```
+
+Let's take a look at each component of this call.
+
+Before calling `$child->workflowMethod()`, you must configure `ChildWorkflowOptions` for the invocation.
+These options customize various execution timeouts, and are passed into the Workflow stub defined by the `Workflow::newChildWorkflowStub`.
+Once stub created you can invoke its Workflow method based on attribute `WorkflowMethod`.
+
+The method call returns immediately and returns a `Promise`.
+This allows you to execute more code without having to wait for the scheduled Workflow to complete.
+
+When you are ready to process the results of the Workflow, call the `yield $promise` method on the returned promise object.
+
+When a parent Workflow is cancelled by the user, the Child Workflow can be cancelled or abandoned based on a configurable child policy.
+
+You can also skip the stub part of Child Workflow initiation and use `Workflow::executeChildWorkflow` directly:
+
+```php
+// Use one stub per child workflow run
+$childResult = yield Workflow::executeChildWorkflow(
+    'ChildWorkflowName',
+    ['args'],
+    ChildWorkflowOptions::new()->withWorkflowId('BID-SIMPLE-CHILD-WORKFLOW'),
+    Type::TYPE_STRING // optional: defines the return type
+);
+```
+
+#### How to set a Parent Close Policy {#parent-close-policy}
+
+A [Parent Close Policy](/parent-close-policy) determines what happens to a Child Workflow Execution if its Parent changes to a Closed status (Completed, Failed, or Timed Out).
+
+The default Parent Close Policy option is set to terminate the Child Workflow Execution.
+
+In PHP, a [Parent Close Policy](/parent-close-policy) is set via the `ChildWorkflowOptions` object and `withParentClosePolicy()` method.
+The possible values can be obtained from the [`ParentClosePolicy`](https://github.com/temporalio/sdk-php/blob/master/src/Workflow/ParentClosePolicy.php) class.
+
+- `POLICY_TERMINATE`
+- `POLICY_ABANDON`
+- `POLICY_REQUEST_CANCEL`
+
+Then `ChildWorkflowOptions` object is used to create a new Child Workflow object:
+
+```php
+$child = Workflow::newUntypedChildWorkflowStub(
+    'child-workflow',
+    ChildWorkflowOptions::new()
+        ->withParentClosePolicy(ParentClosePolicy::POLICY_ABANDON)
+);
+
+yield $child->start();
+```
+
+In the snippet above we:
+
+1. Create a new untyped Child Workflow stub with `Workflow::newUntypedChildWorkflowStub`.
+2. Provide `ChildWorkflowOptions` object with Parent Close Policy set to `ParentClosePolicy::POLICY_ABANDON`.
+3. Start Child Workflow Execution asynchronously using `yield` and method `start()`.
+
+We need `yield` here to ensure that a Child Workflow Execution starts before the parent closes.
+
+---
+
+## Continue-As-New - PHP SDK
+
+This page answers the following questions for PHP developers:
+
+- [What is Continue-As-New?](#what)
+- [How to Continue-As-New?](#how)
+- [When is it right to Continue-as-New?](#when)
+- [How to test Continue-as-New?](#how-to-test)
+
+## What is Continue-As-New? {#what}
+
+[Continue-As-New](/workflow-execution/continue-as-new) lets a Workflow Execution close successfully and creates a new Workflow Execution.
+You can think of it as a checkpoint when your Workflow gets too long or approaches certain scaling limits.
+
+The new Workflow Execution is in the same [chain](/workflow-execution#workflow-execution-chain); it keeps the same Workflow Id but gets a new Run Id and a fresh Event History.
+It also receives your Workflow's usual parameters.
+
+## How to Continue-As-New using the PHP SDK {#how}
+
+First, design your Workflow parameters so that you can pass in the "current state" when you Continue-As-New into the next Workflow run.
+This state is typically set to `None` for the original caller of the Workflow.
+
+  
+    View the source code
+  {' '}
+  in the context of the rest of the application code.
+
+```php
+final class ClusterManagerInput {
+    public function __construct(
+        public ?ClusterManagerState $state = null,
+        public bool $testContinueAsNew = false,
+    ) {}
+}
+
+#[Workflow\WorkflowInterface]
+interface MessageHandlerWorkflowInterface
+{
+#[Workflow\WorkflowMethod]
+public function run(ClusterManagerInput $input);
+}
+
+````
+The test hook in the above snippet is covered [below](#how-to-test).
+
+Inside your Workflow, call the [`continueAsNew()`](https://php.temporal.io/classes/Temporal-Workflow.html#method_continueAsNew) function with the same type.
+This stops the Workflow right away and starts a new one.
+
+  
+    View the source code
+  {' '}
+  in the context of the rest of the application code.
+
+```php
+Workflow::continueAsNew(
+    Workflow::getInfo()->type->name,
+    [new ClusterManagerInput($this->state, $input->testContinueAsNew)],
+);
+````
+
+### Considerations for Workflows with Message Handlers {#with-message-handlers}
+
+If you use Updates or Signals, don't call Continue-as-New from the handlers.
+Instead, wait for your handlers to finish in your main Workflow before you run `continueAsNew`.
+See the [`allHandlersFinished`](message-passing#wait-for-message-handlers) example for guidance.
+
+## When is it right to Continue-as-New using the PHP SDK? {#when}
+
+Use Continue-as-New when your Workflow might hit [Event History Limits](/workflow-execution/event#event-history).
+
+Temporal tracks your Workflow's progress against these limits to let you know when you should Continue-as-New.
+Call `Workflow::getInfo()->shouldContinueAsNew` to check if it's time.
+
+## How to test Continue-as-New using the PHP SDK {#how-to-test}
+
+Testing Workflows that naturally Continue-as-New may be time-consuming and resource-intensive.
+Instead, add a test hook to check your Workflow's Continue-as-New behavior faster in automated tests.
+
+For example, when `testContinueAsNew == true`, this sample creates a test-only variable called `$this->maxHistoryLength` and sets it to a small value.
+A helper method in the Workflow checks it each time it considers using Continue-as-New:
+
+  
+    View the source code
+  {' '}
+  in the context of the rest of the application code.
+
+```php
+private function shouldContinueAsNew(): bool
+{
+    if (Workflow::getInfo()->shouldContinueAsNew) {
+        return true;
+    }
+
+    // This is just for ease-of-testing.  In production, we trust temporal to tell us when to continue as new.
+    if ($this->maxHistoryLength !== null && Workflow::getInfo()->historyLength > $this->maxHistoryLength) {
+        return true;
+    }
+
+    return false;
+}
+```
+
+---
+
+## Core application - PHP SDK
+
+## How to develop a basic Workflow {#develop-workflows}
+
+Workflows are the fundamental unit of a Temporal Application, and it all starts with the development of a [Workflow Definition](/workflow-definition).
+
+In the Temporal PHP SDK programming model, Workflows are a class method. Classes must implement interfaces that are annotated with `#[WorkflowInterface]`. The method that is the Workflow must be annotated with `#[WorkflowMethod]`.
+
+```php
+use Temporal\Workflow\YourWorkflowInterface;
+use Temporal\Workflow\WorkflowMethod;
+
+#[WorkflowInterface]
+interface FileProcessingWorkflow
+{
+    #[WorkflowMethod]
+    public function processFile(Argument $args);
+
+}
+```
+
+### How to define Workflow parameters {#workflow-parameters}
+
+Temporal Workflows may have any number of custom parameters.
+However, we strongly recommend that objects are used as parameters, so that the object's individual fields may be altered without breaking the signature of the Workflow.
+All Workflow Definition parameters must be serializable.
+
+A method annotated with `#[WorkflowMethod]` can have any number of parameters.
+
+We recommend passing a single parameter that contains all the input fields to allow for adding fields in a backward-compatible manner.
+
+Note that all inputs should be serializable to a byte array using the provided [DataConverter](https://github.com/temporalio/sdk-php/blob/master/src/DataConverter/DataConverterInterface.php) interface.
+The default implementation uses a JSON serializer, but an alternative implementation can be easily configured.
+You can create a custom object and pass it to the Workflow method, as shown in the following example:
+
+```php
+#[WorkflowInterface]
+interface FileProcessingWorkflow {
+    #[WorkflowMethod]
+    public function processFile(Argument $args);
+}
+```
+
+### How to define Workflow return parameters {#workflow-return-values}
+
+Workflow return values must also be serializable.
+Returning results, returning errors, or throwing exceptions is fairly idiomatic in each language that is supported.
+However, Temporal APIs that must be used to get the result of a Workflow Execution will only ever receive one of either the result or the error.
+
+A Workflow method returns a Generator.
+To properly typecast the Workflow's return value in the client code, use the `#[ReturnType()]` attribute.
+
+```php
+#[WorkflowInterface]
+interface FileProcessingWorkflow {
+
+    #[WorkflowMethod]
+    #[ReturnType("string")]
+    public function processFile(Argument $args);
+}
+```
+
+### How to customize your Workflow Type {#workflow-type}
+
+Workflows have a Type that are referred to as the Workflow name.
+
+The following examples demonstrate how to set a custom name for your Workflow Type.
+
+To customize a Workflow Type, use the `WorkflowMethod` attribute to specify the name of Workflow.
+
+```php
+#[WorkflowMethod(name)]
+```
+
+If a Workflow Type is not specified, then Workflow Type defaults to the interface name, which is `YourWorkflowDefinitionInterface` in this case.
+
+```php
+#[WorkflowInterface]
+interface YourWorkflowDefinitionInterface
+{
+    #[WorkflowMethod]
+    public function processFile(Argument $args);
+}
+```
+
+### How to develop Workflow logic {#workflow-logic-requirements}
+
+Workflow logic is constrained by [deterministic execution requirements](/workflow-definition#deterministic-constraints).
+Therefore, each language is limited to the use of certain idiomatic techniques.
+However, each Temporal SDK provides a set of APIs that can be used inside your Workflow to interact with external (to the Workflow) application code.
+
+\*\*Temporal uses the [Microsoft Azure Event Sourcing pattern](https://docs.microsoft.com/en-us/azure/architecture/patterns/event-sourcing) to recover the state of a Workflow object including its local variable values.
+
+In essence, every time a Workflow state has to be restored, its code is re-executed from the beginning.
+When replaying, side effects (such as Activity invocations) are ignored because they are already recorded in the Workflow event history.
+When writing Workflow logic, the replay is not visible, so the code should be written since it executes only once.
+This design puts the following constraints on the Workflow implementation:
+
+- Do not use any mutable global variables because multiple instances of Workflows are executed in parallel.
+- Do not call any non-deterministic functions like non seeded random or `UUID` directly from the Workflow code.
+
+Always do the following in the Workflow implementation code:
+
+- Don't perform any IO or service calls as they are not usually deterministic. Use Activities for this.
+- Only use `Workflow::now()` to get the current time inside a Workflow.
+- Call `yield Workflow::timer()` instead of `sleep()`.
+- Do not use any blocking SPL provided by PHP (i.e. `fopen`, `PDO`, etc) in **Workflow code**.
+- Use `yield Workflow::getVersion()` when making any changes to the Workflow code. Without this, any deployment of updated Workflow code
+  might break already open Workflows.
+- Don't access configuration APIs directly from a Workflow because changes in the configuration might affect a Workflow Execution path.
+  Pass it as an argument to a Workflow function or use an Activity to load it.
+
+Workflow method arguments and return values are serializable to a byte array using the provided [DataConverter](https://www.javadoc.io/doc/io.temporal/temporal-sdk/latest/io/temporal/common/converter/DataConverter.html) interface.
+The default implementation uses JSON serializer, but you can use any alternative serialization mechanism.
+
+Make sure to annotate your `WorkflowMethod` using `ReturnType` to specify concrete return type.
+
+> You can not use the default return type declaration as Workflow methods are generators.
+
+The values passed to Workflows through invocation parameters or returned through a result value are recorded in the execution history.
+The entire execution history is transferred from the Temporal service to Workflow workers with every event that the Workflow logic needs to process.
+A large execution history can thus adversely impact the performance of your Workflow.
+Therefore, be mindful of the amount of data that you transfer via Activity invocation parameters or return values.
+Otherwise, no additional limitations exist on Activity implementations.\*\*
+
+## How to develop a basic Activity {#develop-activities}
+
+One of the primary things that Workflows do is orchestrate the execution of Activities.
+An Activity is a normal function or method execution that's intended to execute a single, well-defined action (either short or long-running), such as querying a database, calling a third-party API, or transcoding a media file.
+An Activity can interact with world outside the Temporal Platform or use a Temporal Client to interact with a Temporal Service.
+For the Workflow to be able to execute the Activity, we must define the [Activity Definition](/activity-definition).
+
+Activities are defined as methods of a plain PHP interface annotated with `#[ActivityInterface]`.
+
+Following is an example of an interface that defines four Activities:
+
+```php
+#[ActivityInterface]
+// Defining an interface for the activities.
+interface FileProcessingActivities
+{
+    public function upload(string $bucketName, string $localName, string $targetName): void;
+
+    #[ActivityMethod("transcode_file")]
+    public function download(string $bucketName, string $remoteName): void;
+
+    public function processFile(): string;
+
+    public function deleteLocalFile(string $fileName): void;
+}
+```
+
+### How to develop Activity Parameters {#activity-parameters}
+
+There is no explicit limit to the total number of parameters that an [Activity Definition](/activity-definition) may support.
+However, there is a limit to the total size of the data that ends up encoded into a gRPC message Payload.
+
+A single argument is limited to a maximum size of 2 MB.
+And the total size of a gRPC message, which includes all the arguments, is limited to a maximum of 4 MB.
+
+Also, keep in mind that all Payload data is recorded in the [Workflow Execution Event History](/workflow-execution/event#event-history) and large Event Histories can affect Worker performance.
+This is because the entire Event History could be transferred to a Worker Process with a [Workflow Task](/tasks#workflow-task).
+
+{/* TODO link to gRPC limit section when available */}
+
+Some SDKs require that you pass context objects, others do not.
+When it comes to your application data—that is, data that is serialized and encoded into a Payload—we recommend that you use a single object as an argument that wraps the application data passed to Activities.
+This is so that you can change what data is passed to the Activity without breaking a function or method signature.
+
+Each method defines a single Activity type.
+A single Workflow can use more than one Activity interface and call more than one Activity method from the same interface.
+
+The only requirement is that Activity method arguments and return values are serializable to a byte array using the provided [DataConverter](https://github.com/temporalio/sdk-php/blob/master/src/DataConverter/DataConverterInterface.php) interface.
+The default implementation uses a JSON serializer, but an alternative implementation can be easily configured.
+
+### How to define Activity return values {#activity-return-values}
+
+All data returned from an Activity must be serializable.
+
+Activity return values are subject to payload size limits in Temporal. The default payload size limit is 2MB, and there is a hard limit of 4MB for any gRPC message size in the Event History transaction ([see Cloud limits here](https://docs.temporal.io/cloud/limits#per-message-grpc-limit)). Keep in mind that all return values are recorded in a [Workflow Execution Event History](/workflow-execution/event#event-history).
+
+Return values must be serializable to a byte array using the provided [DataConverter](https://github.com/temporalio/sdk-php/blob/master/src/DataConverter/DataConverterInterface.php) interface.
+The default implementation uses a JSON serializer, but an alternative implementation can be easily configured.
+Thus, you can return both primitive types:
+
+```php
+class GreetingActivity implements GreetingActivityInterface
+{
+    public function composeGreeting(string $greeting, string $name): string
+    {
+        return $greeting . ' ' . $name;
+    }
+}
+```
+
+And objects:
+
+```php
+class GreetingActivity implements GreetingActivityInterface
+{
+    public function composeGreeting(string $greeting, string $name): Greeting
+    {
+        return new Greeting($greeting, $name);
+    }
+}
+```
+
+### How to customize your Activity Type {#activity-type}
+
+Activities have a Type that are referred to as the Activity name.
+The following examples demonstrate how to set a custom name for your Activity Type.
+
+An optional `#[ActivityMethod]` attribute can be used to override a default Activity name.
+
+You can define your own prefix for all Activity names by adding the `prefix` option to the `ActivityInterface` attribute.
+(The default prefix is empty.)
+
+```php
+#[ActivityInterface("file_activities.")]
+interface FileProcessingActivities
+{
+    public function upload(string $bucketName, string $localName, string $targetName);
+
+    #[ActivityMethod("transcode_file")]
+    public function download(string $bucketName, string $remoteName);
+
+    public function processFile(): string;
+
+    public function deleteLocalFile(string $fileName);
+}
+```
+
+The `#[ActivityInterface("file_activities.")]` is an attribute that tells the PHP SDK to generate a class to implement the `FileProcessingActivities` interface. The functions define Activities that are used in the Workflow.
+
+## How to start an Activity Execution {#activity-execution}
+
+Calls to spawn [Activity Executions](/activity-execution) are written within a [Workflow Definition](/workflow-definition).
+The call to spawn an Activity Execution generates the [ScheduleActivityTask](/references/commands#scheduleactivitytask) Command.
+This results in the set of three [Activity Task](/tasks#activity-task) related Events ([ActivityTaskScheduled](/references/events#activitytaskscheduled), [ActivityTaskStarted](/references/events#activitytaskstarted), and ActivityTask[Closed])in your Workflow Execution Event History.
+
+A single instance of the Activities implementation is shared across multiple simultaneous Activity invocations.
+Activity implementation code should be _idempotent_.
+
+The values passed to Activities through invocation parameters or returned through a result value are recorded in the Execution history.
+The entire Execution history is transferred from the Temporal service to Workflow Workers when a Workflow state needs to recover.
+A large Execution history can thus adversely impact the performance of your Workflow.
+
+Therefore, be mindful of the amount of data you transfer through Activity invocation parameters or Return Values.
+Otherwise, no additional limitations exist on Activity implementations.
+
+Activity implementation is an implementation of an Activity interface.
+The following code example, uses a constructor that takes an Amazon S3 client and a local directory, and uploads a file to the S3 bucket.
+Then, the code uses a function to download a file from the S3 bucket passing a bucket name, remote name, and local name as arguments.
+Finally, it uses a function that takes a local file name as an argument and returns a string.
+
+```php
+// An implementation of an Activity interface.
+class FileProcessingActivitiesImpl implements FileProcessingActivities {
+
+    private S3Client $s3Client;
+
+    private string $localDirectory;
+
+    public function __construct(S3Client $s3Client, string $localDirectory) {
+        $this->s3Client = $s3Client;
+        $this->localDirectory = $localDirectory;
+    }
+
+    // Uploading a file to S3.
+    public function upload(string $bucketName, string $localName, string $targetName): void
+    {
+        $this->s3Client->putObject(
+            $bucketName,
+            $targetName,
+            fopen($this->localDirectory . $localName, 'rb+')
+        );
+    }
+
+// Downloading a file from S3.
+    public function download(
+        string $bucketName,
+        string $remoteName,
+        string $localName
+    ): void
+    {
+        $this->s3Client->downloadObject(
+            $bucketName,
+            $remoteName,
+            fopen($this->localDirectory .$localName, 'wb+')
+        );
+    }
+
+// A function that takes a local file name as an argument and returns a string.
+    public function processFile(string $localName): string
+    {
+        // Implementation omitted for brevity.
+        return compressFile($this->localDirectory . $localName);
+    }
+
+    public function deleteLocalFile(string $fileName): void
+    {
+        unlink($this->localDirectory . $fileName);
+    }
+}
+```
+
+### How to set the required Activity Timeouts {#required-timeout}
+
+Activity Execution semantics rely on several parameters.
+The only required value that needs to be set is either a [Schedule-To-Close Timeout](/encyclopedia/detecting-activity-failures#schedule-to-close-timeout) or a [Start-To-Close Timeout](/encyclopedia/detecting-activity-failures#start-to-close-timeout).
+These values are set in the Activity Options.
+
+### How to get the results of an Activity Execution {#get-activity-results}
+
+The call to spawn an [Activity Execution](/activity-execution) generates the [ScheduleActivityTask](/references/commands#scheduleactivitytask) Command and provides the Workflow with an Awaitable.
+Workflow Executions can either block progress until the result is available through the Awaitable or continue progressing, making use of the result when it becomes available.
+
+`Workflow::newActivityStub`returns a client-side stub an implements an Activity interface. The client-side stub can be used within the Workflow code. It takes the Activity's type and`ActivityOptions` as arguments.
+
+Calling (via `yield`) a method on this interface invokes an Activity that implements this method.
+An Activity invocation synchronously blocks until the Activity completes, fails, or times out.
+Even if Activity Execution takes a few months, the Workflow code still sees it as a single synchronous invocation.
+It doesn't matter what happens to the processes that host the Workflow.
+The business logic code just sees a single method call.
+
+```php
+class GreetingWorkflow implements GreetingWorkflowInterface
+{
+    private $greetingActivity;
+
+    public function __construct()
+    {
+        $this->greetingActivity = Workflow::newActivityStub(
+            GreetingActivityInterface::class,
+            ActivityOptions::new()->withStartToCloseTimeout(\DateInterval::createFromDateString('30 seconds'))
+        );
+    }
+
+    public function greet(string $name): \Generator
+    {
+        // This is a blocking call that returns only after the activity has completed.
+        return yield $this->greetingActivity->composeGreeting('Hello', $name);
+    }
+}
+```
+
+If different Activities need different options, like timeouts or a task queue, multiple client-side stubs can be created with different options.
+
+```php
+$greetingActivity = Workflow::newActivityStub(
+    GreetingActivityInterface::class,
+    ActivityOptions::new()->withStartToCloseTimeout(\DateInterval::createFromDateString('30 seconds'))
+);
+
+$greetingActivity = Workflow::newActivityStub(
+    GreetingActivityInterface::class,
+    ActivityOptions::new()->withStartToCloseTimeout(\DateInterval::createFromDateString('30 minutes'))
+);
+```
+
+## How to run Worker Processes {#run-a-dev-worker}
+
+The [Worker Process](/workers#worker-process) is where Workflow Functions and Activity Functions are executed.
+
+- Each [Worker Entity](/workers#worker-entity) in the Worker Process must register the exact Workflow Types and Activity Types it may execute.
+- Each Worker Entity must also associate itself with exactly one [Task Queue](/task-queue).
+- Each Worker Entity polling the same Task Queue must be registered with the same Workflow Types and Activity Types.
+
+A [Worker Entity](/workers#worker-entity) is the component within a Worker Process that listens to a specific Task Queue.
+
+Although multiple Worker Entities can be in a single Worker Process, a single Worker Entity Worker Process may be perfectly sufficient.
+For more information, see the [Worker tuning guide](/develop/worker-performance).
+
+A Worker Entity contains a Workflow Worker and/or an Activity Worker, which makes progress on Workflow Executions and Activity Executions, respectively.
+
+The [RoadRunner application server](https://roadrunner.dev/) will launch multiple Temporal PHP Worker processes based on provided `.rr.yaml` configuration.
+
+Each Worker might connect to one or multiple Task Queues.
+Worker poll _Temporal service_ for tasks, performs those tasks, and communicates task execution results back to the _Temporal service_.
+
+Worker code are developed, deployed, and operated by Temporal customers.
+To create a worker use `Temporal\WorkerFactory`:
+
+```php
+<?php
+
+declare(strict_types=1);
+
+use Temporal\WorkerFactory;
+
+ini_set('display_errors', 'stderr');
+include "vendor/autoload.php";
+
+// factory initiates and runs task queue specific activity and workflow workers
+$factory = WorkerFactory::create();
+
+// Worker that listens on a Task Queue and hosts both workflow and activity implementations.
+$worker = $factory->newWorker();
+
+// Workflows are stateful. So you need a type to create instances.
+$worker->registerWorkflowTypes(App\DemoWorkflow::class);
+
+// Activities are stateless and thread safe. So a shared instance is used.
+$worker->registerActivity(App\DemoActivity::class);
+
+// In case an activity class requires some external dependencies provide a callback - factory
+// that creates or builds a new activity instance. The factory should be a callable which accepts
+// an instance of ReflectionClass with an activity class which should be created.
+$worker->registerActivity(App\DemoActivity::class, fn(ReflectionClass $class) => $container->create($class->getName()));
+
+// start primary loop
+$factory->run();
+```
+
+You can configure task queue name using first argument of `WorkerFactory`->`newWorker`:
+
+```php
+$worker = $factory->newWorker('your-task-queue');
+```
+
+As mentioned above you can create as many Task Queue connections inside a single Worker Process as you need.
+
+To configure additional WorkerOptions use `Temporal\Worker\WorkerOptions`:
+
+```php
+use Temporal\Worker\WorkerOptions;
+
+$worker = $factory->newWorker(
+    'your-task-queue',
+    WorkerOptions::new()
+        ->withMaxConcurrentWorkflowTaskPollers(10)
+);
+```
+
+Make sure to point the Worker file in application server configuration:
+
+```yaml
+rpc:
+  listen: tcp://127.0.0.1:6001
+
+server:
+  command: 'php worker.php'
+
+temporal:
+  address: 'temporal:7233'
+  activities:
+    num_workers: 10
+```
+
+> You can serve HTTP endpoints using the same server setup.
+
+To provide the [API key](/cloud/api-keys) to RoadRunner use a `ServiceCredentials` DTO when creating the WorkerFactory:
+
+```php
+use Temporal\Worker\ServiceCredentials;
+
+$workerFactory = \Temporal\WorkerFactory::create(
+    credentials: ServiceCredentials::create()->withApiKey('your-api-key'),
+);
+```
+
+[How to configure connection to a Temporal Cloud](/develop/php/temporal-client#connect-to-temporal-cloud)
+
+### How to register types {#register-types}
+
+All Workers listening to the same Task Queue name must be registered to handle the exact same Workflows Types and Activity Types.
+
+If a Worker polls a Task for a Workflow Type or Activity Type it does not know about, it fails that Task.
+However, the failure of the Task does not cause the associated Workflow Execution to fail.
+
+Worker listens on a Task Queue and hosts both Workflow and Activity implementations:
+
+```php
+// Workflows are stateful. So you need a type to create instances:
+$worker->registerWorkflowTypes(App\DemoWorkflow::class);
+// Activities are stateless and thread safe:
+$worker->registerActivity(App\DemoActivity::class);
+```
+
+In case an activity class requires some external dependencies provide a callback - factory
+that creates or builds a new activity instance. The factory should be a callable which accepts
+an instance of ReflectionClass with an activity class which should be created.
+
+```php
+$worker->registerActivity(
+    App\DemoActivity::class,
+    fn(ReflectionClass $class) => $container->create($class->getName())
+);
+```
+
+If you want to clean up some resources after activity is done, you may register a finalizer. This callback is called
+after each activity invocation:
+
+```php
+$worker->registerActivityFinalizer(fn() => $kernel->showtdown());
+```
+
+---
+
+## Debugging - PHP SDK
+
+## Debugging {#debug}
+
+### How to debug in a development environment {#debug-in-a-development-environment}
+
+In addition to the normal development tools of logging and a debugger, you can also see what's happening in your Workflow by using the [Web UI](/web-ui) or [Temporal CLI](/cli).
+
+### How to debug in a development production {#debug-in-a-development-production}
+
+You can debug production Workflows using:
+
+- [Web UI](/web-ui)
+- [Temporal CLI](/cli)
+
+You can debug and tune Worker performance with metrics and the [Worker performance guide](/develop/worker-performance).
+
+Debug Server performance with [Cloud metrics](/cloud/metrics/) or [self-hosted Server metrics](/self-hosted-guide/production-checklist#scaling-and-metrics).
+
+---
+
+## Failure detection - PHP SDK
+
+## Workflow timeouts {#workflow-timeouts}
+
+Each Workflow timeout controls the maximum duration of a different aspect of a Workflow Execution.
+
+Before we continue, we want to note that we generally do not recommend setting Workflow Timeouts, because Workflows are designed to be long-running and resilient.
+Instead, setting a Timeout can limit its ability to handle unexpected delays or long-running processes.
+If you need to perform an action inside your Workflow after a specific period of time, we recommend using a Timer.
+
+Workflow timeouts are set when [starting the Workflow Execution](#workflow-timeouts).
+
+- **[Workflow Execution Timeout](/encyclopedia/detecting-workflow-failures#workflow-execution-timeout)** - restricts the maximum amount of time that a single Workflow Execution can be executed.
+- **[Workflow Run Timeout](/encyclopedia/detecting-workflow-failures#workflow-run-timeout):** restricts the maximum amount of time that a single Workflow Run can last.
+- **[Workflow Task Timeout](/encyclopedia/detecting-workflow-failures#workflow-task-timeout):** restricts the maximum amount of time that a Worker can execute a Workflow Task.
+
+Create an instance of `WorkflowOptions` in the Client code and set your timeout.
+
+Available timeouts are:
+
+- `withWorkflowExecutionTimeout()`
+- `withWorkflowRunTimeout()`
+- `withWorkflowTaskTimeout()`
+
+```php
+$workflow = $this->workflowClient->newWorkflowStub(
+    DynamicSleepWorkflowInterface::class,
+    WorkflowOptions::new()
+        ->withWorkflowId(DynamicSleepWorkflow::WORKFLOW_ID)
+        ->withWorkflowIdReusePolicy(WorkflowIdReusePolicy::WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE)
+        // Set Workflow Timeout duration
+        ->withWorkflowExecutionTimeout(CarbonInterval::minutes(2))
+        // ->withWorkflowRunTimeout(CarbonInterval::minute(2))
+        // ->withWorkflowTaskTimeout(CarbonInterval::minute(2))
+);
+```
+
+### Workflow retries {#workflow-retries}
+
+A Retry Policy can work in cooperation with the timeouts to provide fine controls to optimize the execution experience.
+
+Use a [Retry Policy](/encyclopedia/retry-policies) to retry a Workflow Execution in the event of a failure.
+
+Workflow Executions do not retry by default, and Retry Policies should be used with Workflow Executions only in certain situations.
+
+A Retry Policy can be configured with an instance of the `RetryOptions` object.
+To enable retries for a Workflow, you need to provide a Retry Policy object via `ChildWorkflowOptions` for Child Workflows or via `WorkflowOptions` for top-level Workflows.
+
+```php
+$workflow = $this->workflowClient->newWorkflowStub(
+      CronWorkflowInterface::class,
+      WorkflowOptions::new()->withRetryOptions(
+        RetryOptions::new()->withInitialInterval(120)
+      )
+);
+```
+
+## How to set Activity timeouts {#activity-timeouts}
+
+Each Activity timeout controls the maximum duration of a different aspect of an Activity Execution.
+
+The following timeouts are available in the Activity Options.
+
+- **[Schedule-To-Close Timeout](/encyclopedia/detecting-activity-failures#schedule-to-close-timeout):** is the maximum amount of time allowed for the overall [Activity Execution](/activity-execution).
+- **[Start-To-Close Timeout](/encyclopedia/detecting-activity-failures#start-to-close-timeout):** is the maximum time allowed for a single [Activity Task Execution](/tasks#activity-task-execution).
+- **[Schedule-To-Start Timeout](/encyclopedia/detecting-activity-failures#schedule-to-start-timeout):** is the maximum amount of time that is allowed from when an [Activity Task](/tasks#activity-task) is scheduled to when a [Worker](/workers#worker) starts that Activity Task.
+
+An Activity Execution must have either the Start-To-Close or the Schedule-To-Close Timeout set.
+
+Because Activities are reentrant, only a single stub can be used for multiple Activity invocations.
+
+Available timeouts are:
+
+- withScheduleToCloseTimeout()
+- withStartToCloseTimeout()
+- withScheduleToStartTimeout()
+
+```php
+$this->greetingActivity = Workflow::newActivityStub(
+    GreetingActivityInterface::class,
+    // Set Activity Timeout duration
+    ActivityOptions::new()
+        ->withScheduleToCloseTimeout(CarbonInterval::seconds(2))
+        // ->withStartToCloseTimeout(CarbonInterval::seconds(2))
+        // ->withScheduleToStartTimeout(CarbonInterval::seconds(10))
+);
+```
+
+### How to set an Activity Retry Policy {#activity-retries}
+
+A Retry Policy works in cooperation with the timeouts to provide fine controls to optimize the execution experience.
+
+Activity Executions are automatically associated with a default [Retry Policy](/encyclopedia/retry-policies) if a custom one is not provided.
+
+To set an Activity Retry, set `{@link RetryOptions}` on `{@link ActivityOptions}`.
+The follow example creates a new Activity with the given options.
+
+```php
+$this->greetingActivity = Workflow::newActivityStub(
+    GreetingActivityInterface::class,
+    ActivityOptions::new()
+        ->withScheduleToCloseTimeout(CarbonInterval::seconds(10))
+        ->withRetryOptions(
+            RetryOptions::new()
+                ->withInitialInterval(CarbonInterval::seconds(1))
+                ->withMaximumAttempts(5)
+                ->withNonRetryableExceptions([\InvalidArgumentException::class])
+        )
+);
+}
+```
+
+For an executable code sample, see [ActivityRetry sample](https://github.com/temporalio/samples-php/tree/master/app/src/ActivityRetry) in the PHP samples repository.
+
+### How to set the required Activity Timeouts {#required-timeout}
+
+Activity Execution semantics rely on several parameters.
+The only required value that needs to be set is either a [Schedule-To-Close Timeout](/encyclopedia/detecting-activity-failures#start-to-close-timeout) or a [Start-To-Close Timeout](/encyclopedia/detecting-activity-failures#start-to-close-timeout).
+These values are set in the Activity Options.
+
+## Activity next Retry delay {#activity-next-retry-delay}
+
+**How to override the next Retry delay following an Activity failure using the Temporal PHP SDK**
+
+You may throw an [`ApplicationFailure`](/references/failures#application-failure) with the `nextRetryDelay` field set.
+This value will replace and override whatever the retry interval would be on the retry policy.
+
+For example, if in an Activity, you want to base the interval on the number of attempts, you might do:
+
+```php
+$attempt = \Temporal\Activity::getInfo()->attempt;
+
+throw new \Temporal\Exception\Failure\ApplicationFailure(
+    message: "Something bad happened on attempt $attempt",
+    type: 'my_failure_type',
+    nonRetryable: false,
+    nextRetryDelay: \DateInterval::createFromDateString(\sprintf('%d seconds', $attempt * 3)),
+);
+```
+
+## How to Heartbeat an Activity {#activity-heartbeats}
+
+An [Activity Heartbeat](/encyclopedia/detecting-activity-failures#activity-heartbeat) is a ping from the [Worker Process](/workers#worker-process) that is executing the Activity to the [Temporal Service](/temporal-service).
+Each Heartbeat informs the Temporal Service that the [Activity Execution](/activity-execution) is making progress and the Worker has not crashed.
+If the Temporal Service does not receive a Heartbeat within a [Heartbeat Timeout](/encyclopedia/detecting-activity-failures#heartbeat-timeout) time period, the Activity will be considered failed and another [Activity Task Execution](/tasks#activity-task-execution) may be scheduled according to the Retry Policy.
+
+Heartbeats may not always be sent to the Temporal Service—they may be [throttled](/encyclopedia/detecting-activity-failures#throttling) by the Worker.
+
+Activity Cancellations are delivered to Activities from the Temporal Service when they Heartbeat. Activities that don't Heartbeat can't receive a Cancellation.
+Heartbeat throttling may lead to Cancellation getting delivered later than expected.
+
+Heartbeats can contain a `details` field describing the Activity's current progress.
+If an Activity gets retried, the Activity can access the `details` from the last Heartbeat that was sent to the Temporal Service.
+
+Some Activities are long-running.
+To react to a crash quickly, use the Heartbeat mechanism, `Activity::heartbeat()`, which lets the Temporal Server know that the Activity is still alive.
+This acts as a periodic checkpoint mechanism for the progress of an Activity.
+
+You can piggyback `details` on an Activity Heartbeat.
+If an Activity times out, the last value of `details` is included in the `TimeoutFailure` delivered to a Workflow.
+Then the Workflow can pass the details to the next Activity invocation.
+Additionally, you can access the details from within an Activity via `Activity::getHeartbeatDetails`.
+When an Activity is retried after a failure `getHeartbeatDetails` enables you to get the value from the last successful Heartbeat.
+
+```php
+use Temporal\Activity;
+
+class FileProcessingActivitiesImpl implements FileProcessingActivities
+{
+    // ...
+    public function download(
+        string $bucketName,
+        string $remoteName,
+        string $localName
+    ): void
+    {
+        $this->dowloader->downloadWithProgress(
+            $bucketName,
+            $remoteName,
+            $localName,
+            // on progress
+            function ($progress) {
+                Activity::heartbeat($progress);
+            }
+        );
+
+        Activity::heartbeat(100); // download complete
+
+        // ...
+    }
+
+    // ...
+}
+```
+
+#### How to set a Heartbeat Timeout {#heartbeat-timeout}
+
+A [Heartbeat Timeout](/encyclopedia/detecting-activity-failures#heartbeat-timeout) works in conjunction with [Activity Heartbeats](/encyclopedia/detecting-activity-failures#activity-heartbeat).
+
+Some Activities are long-running.
+To react to a crash quickly, use the Heartbeat mechanism, `Activity::heartbeat()`, which lets the Temporal Server know that the Activity is still alive.
+This acts as a periodic checkpoint mechanism for the progress of an Activity.
+
+You can piggyback `details` on an Activity Heartbeat.
+If an Activity times out, the last value of `details` is included in the `TimeoutFailure` delivered to a Workflow.
+Then the Workflow can pass the details to the next Activity invocation.
+Additionally, you can access the details from within an Activity via `Activity::getHeartbeatDetails`.
+When an Activity is retried after a failure `getHeartbeatDetails` enables you to get the value from the last successful Heartbeat.
+
+```php
+use Temporal\Activity;
+
+class FileProcessingActivitiesImpl implements FileProcessingActivities
+{
+    // ...
+    public function download(
+        string $bucketName,
+        string $remoteName,
+        string $localName
+    ): void
+    {
+        $this->dowloader->downloadWithProgress(
+            $bucketName,
+            $remoteName,
+            $localName,
+            // on progress
+            function ($progress) {
+                Activity::heartbeat($progress);
+            }
+        );
+
+        Activity::heartbeat(100); // download complete
+
+        // ...
+    }
+
+    // ...
+}
+```
+
+---
+
+## PHP SDK developer guide
+
+![PHP SDK Banner](/img/assets/banner-php-temporal.png)
+
+:::info PHP SPECIFIC RESOURCES
+Build Temporal Applications with the PHP SDK.
+
+**Temporal PHP Technical Resources:**
+
+- [PHP API Documentation](https://php.temporal.io)
+- [PHP SDK Code Samples](https://github.com/temporalio/samples-php)
+- [PHP SDK GitHub](https://github.com/temporalio/sdk-php)
+
+**Get Connected with the Temporal PHP Community:**
+
+- [Temporal PHP Community Slack](https://temporalio.slack.com/archives/C01LK9FAMM0)
+- [PHP SDK Forum](https://community.temporal.io/tag/php-sdk)
+  :::
+
+## [Core Application](/develop/php/core-application)
+
+Use the essential components of a Temporal Application (Workflows, Activities, and Workers) to build and run a Temporal application.
+
+- [How to develop a basic Workflow](/develop/php/core-application#develop-workflows)
+- [How to develop a basic Activity](/develop/php/core-application#develop-activities)
+- [How to start an Activity Execution](/develop/php/core-application#activity-execution)
+- [How to run Worker Processes](/develop/php/core-application#run-a-dev-worker)
+
+## [Temporal Client](/develop/php/temporal-client)
+
+Connect to a Temporal Service and start a Workflow Execution.
+
+- [How to connect a Temporal Client to a Temporal Service](/develop/php/temporal-client#connect-to-a-dev-cluster)
+- [How to connect a Temporal Client to a Temporal Cloud](/develop/php/temporal-client#connect-to-temporal-cloud)
+- [How to start a Workflow Execution](/develop/php/temporal-client#start-workflow-execution)
+- [Advanced connection options](/develop/php/temporal-client#advanced-connection-options)
+
+## [Testing](/develop/php/testing-suite)
+
+Set up the testing suite to test Workflows and Activities.
+
+- [Testing Activities](/develop/php/testing-suite#test-activities)
+- [Testing Workflows](/develop/php/testing-suite#test-workflows)
+- [How to Replay a Workflow Execution](/develop/php/testing-suite#replay)
+
+## [Failure detection](/develop/php/failure-detection)
+
+Explore how your application can detect failures using timeouts and automatically attempt to mitigate them with retries.
+
+- [Workflow timeouts](/develop/php/failure-detection#workflow-timeouts)
+- [How to set Activity timeouts](/develop/php/failure-detection#activity-timeouts)
+- [How to Heartbeat an Activity](/develop/php/failure-detection#activity-heartbeats)
+
+## [Workflow message passing](/develop/php/message-passing)
+
+Send messages to read the state of Workflow Executions.
+
+- [How to develop with Signals](/develop/php/message-passing#signals)
+- [How to develop with Queries](/develop/php/message-passing#queries)
+- [How to develop with Updates](/develop/php/message-passing#updates)
+- [Message handler patterns](/develop/php/message-passing#message-handler-patterns)
+- [Message handler troubleshooting](/develop/php/message-passing#message-handler-troubleshooting)
+- [How to develop with Dynamic Handlers](/develop/php/message-passing#dynamic-handler)
+
+## [Interrupt a Workflow feature guide](/develop/php/cancellation)
+
+Interrupt a Workflow Execution with a Cancel or Terminate action.
+
+- [Cancel an Activity from a Workflow](/develop/php/cancellation#cancel-an-activity)
+
+## [Versioning](/develop/php/versioning)
+
+The PHP SDK [Versioning developer guide](/develop/php/versioning) shows how to Change Workflow Definitions without causing non-deterministic behavior in running Workflows.
+
+- [How to use the PHP SDK Patching API](/develop/php/versioning#php-sdk-patching-api): Patching Workflows using the PHP SDK.
+- [Sanity checking](/develop/php/versioning#runtime-checking)
+
+## [Asynchronous Activity Completion](/develop/php/asynchronous-activity-completion)
+
+Complete Activities asynchronously.
+
+- [How to asynchronously complete an Activity](/develop/php/asynchronous-activity-completion#asynchronous-activity-completion)
+
+## [Observability](/develop/php/observability)
+
+Configure and use the Temporal Observability APIs.
+
+- [How to log from a Workflow](/develop/php/observability#logging)
+- [How to use Visibility APIs](/develop/php/observability#visibility)
+
+## [Debugging](/develop/php/debugging)
+
+Explore various ways to debug your application.
+
+- [Debugging](/develop/php/debugging#debug)
+
+## [Schedules](/develop/php/schedules)
+
+Run Workflows on a schedule and delay the start of a Workflow.
+
+- [How to use Start Delay](/develop/php/schedules#start-delay)
+- [How to use Temporal Cron Jobs](/develop/php/schedules#temporal-cron-jobs)
+
+## [Durable Timers](/develop/php/timers)
+
+Use Timers to make a Workflow Execution pause or "sleep" for seconds, minutes, days, months, or years.
+
+- [What is a Timer?](/develop/php/timers#timers)
+
+## [Child Workflows](/develop/php/child-workflows)
+
+Explore how to spawn a Child Workflow Execution and handle Child Workflow Events.
+
+- [How to start a Child Workflow Execution](/develop/php/child-workflows#child-workflows)
+
+## [Continue-As-New](/develop/php/continue-as-new)
+
+Continue the Workflow Execution with a new Workflow Execution using the same Workflow ID.
+
+- [How to Continue-As-New](/develop/php/continue-as-new)
+
+## [Side Effects](/develop/php/side-effects)
+
+Use Side Effects in Workflows.
+
+- [How to use Side Effects in PHP](/develop/php/side-effects#side-effects)
+
+---
+
+## Workflow message passing - PHP SDK
+
+## How to develop with Signals {#signals}
+
+A [Signal](/sending-messages#sending-signals) is a message sent to a running Workflow Execution.
+
+Signals are defined in your code and handled in your Workflow Definition.
+Signals can be sent to Workflow Executions from a Temporal Client or from another Workflow Execution.
+
+### How to define a Signal {#define-signal}
+
+A Signal has a name and can have arguments.
+
+- The name, also called a Signal type, is a string.
+- The arguments must be [serializable](/dataconversion).
+
+Workflows can answer synchronous [Queries](/sending-messages#sending-queries) and receive [Signals](/sending-messages#sending-signals).
+
+All interface methods must have one of the following attributes:
+
+- **#[WorkflowMethod]** indicates an entry point to a Workflow.
+  It contains parameters that specify timeouts and a Task Queue name.
+  Required parameters (such as `executionStartToCloseTimeoutSeconds`) that are not specified through the attribute must be provided at runtime.
+- **#[SignalMethod]** indicates a method that reacts to external signals. It must have a `void` return type.
+- **#[QueryMethod]** indicates a method that reacts to synchronous query requests. It must have a non `void` return type.
+
+> It is possible (though not recommended for usability reasons) to annotate concrete class implementation.
+
+You can have more than one method with the same attribute (except #[WorkflowMethod]).
+
+For example:
+
+```php
+use Temporal\Workflow\WorkflowInterface;
+use Temporal\Workflow\WorkflowMethod;
+use Temporal\Workflow\SignalMethod;
+use Temporal\Workflow\QueryMethod;
+
+#[WorkflowInterface]
+interface FileProcessingWorkflow
+{
+    #[WorkflowMethod]
+    public function processFile(Argument $args);
+
+    #[QueryMethod("history")]
+    public function getHistory(): array;
+
+    #[QueryMethod("status")]
+    public function getStatus(): string;
+
+    #[SignalMethod]
+    public function retryNow(): void;
+
+    #[SignalMethod]
+    public function abandon(): void;
+}
+```
+
+Note that name parameter of Workflow method attributes can be used to specify name of Workflow, Signal and Query types.
+If name is not specified the short name of the Workflow interface is used.
+
+In the above code the `#[WorkflowMethod(name)]` is not specified, thus the Workflow Type defaults to `"FileProcessingWorkflow"`.
+
+### How to handle a Signal {#handle-signal}
+
+Workflows listen for Signals by the Signal's name.
+
+Use the `#[SignalMethod]` attribute to handle Signals in the Workflow interface:
+
+```php
+use Temporal\Workflow;
+
+#[Workflow\WorkflowInterface]
+class YourWorkflow
+{
+    private bool $value;
+
+    #[Workflow\WorkflowMethod]
+    public function run()
+    {
+        yield Workflow::await(fn()=> $this->value);
+        return 'OK';
+    }
+
+    #[Workflow\SignalMethod]
+    public function setValue(bool $value)
+    {
+        $this->value = $value;
+    }
+}
+```
+
+In the preceding example, the Workflow updates the protected value.
+The main Workflow coroutine waits for the value to change by using the `Workflow::await()` function.
+
+### How to send a Signal from a Temporal Client {#send-signal-from-client}
+
+When a Signal is sent successfully from the Temporal Client, the [WorkflowExecutionSignaled](/references/events#workflowexecutionsignaled) Event appears in the Event History of the Workflow that receives the Signal.
+
+To send a Signal to a Workflow Execution from a Client, call the Signal method, annotated with `#[SignalMethod]` in the Workflow interface, from the Client code.
+
+To send a Signal to a Workflow, use `WorkflowClient->newWorkflowStub` or `WorkflowClient->newUntypedWorkflowStub`:
+
+```php
+$workflow = $workflowClient->newWorkflowStub(YourWorkflow::class);
+
+$run = $workflowClient->start($workflow);
+
+// do something
+
+$workflow->setValue(true);
+
+assert($run->getValue() === true);
+```
+
+Use `WorkflowClient->newRunningWorkflowStub` or `WorkflowClient->newUntypedRunningWorkflowStub` with Workflow Id to send Signals to already running Workflows.
+
+```php
+$workflow = $workflowClient->newRunningWorkflowStub(YourWorkflow::class, 'workflowID');
+$workflow->setValue(true);
+```
+
+See [Handle Signal](#handle-signal) for details on how to handle Signals in a Workflow.
+
+### How to send a Signal from a Workflow {#send-signal-from-workflow}
+
+A Workflow can send a Signal to another Workflow, in which case it's called an _External Signal_.
+
+When an External Signal is sent:
+
+- A [SignalExternalWorkflowExecutionInitiated](/references/events#signalexternalworkflowexecutioninitiated) Event appears in the sender's Event History.
+- A [WorkflowExecutionSignaled](/references/events#workflowexecutionsignaled) Event appears in the recipient's Event History.
+
+To send Signal to a Workflow use `WorkflowClient`->`newWorkflowStub` or `WorkflowClient`->`newUntypedWorkflowStub`:
+
+```php
+$workflow = $workflowClient->newWorkflowStub(YourWorkflow::class);
+
+$run = $workflowClient->start($workflow);
+
+// do something
+
+$workflow->setValue(true);
+
+assert($run->getValue() === true);
+```
+
+Use `WorkflowClient`->`newRunningWorkflowStub` or `WorkflowClient->newUntypedRunningWorkflowStub` with Workflow Id to send
+Signals to a running Workflow.
+
+```php
+$workflow = $workflowClient->newRunningWorkflowStub(YourWorkflow::class, 'workflowID');
+$workflow->setValue(true);
+```
+
+### How to Signal-With-Start {#signal-with-start}
+
+Signal-With-Start is used from the Client.
+It takes a Workflow Id, Workflow arguments, a Signal name, and Signal arguments.
+
+If there's a Workflow running with the given Workflow Id, it will be signaled. If there isn't, a new Workflow will be started and immediately signaled.
+
+In cases where you may not know if a Workflow is running, and want to send a Signal to it, use `startwithSignal`.
+If a running Workflow exists, the `startwithSignal` API sends the Signal.
+If there is no running Workflow, the API starts a new Workflow Run and delivers the Signal to it.
+
+```php
+$workflow = $workflowClient->newWorkflowStub(YourWorkflow::class);
+
+$run = $workflowClient->startWithSignal(
+    $workflow,
+    'setValue',
+    [true], // signal arguments
+    [] // start arguments
+);
+```
+
+## How to develop with Queries {#queries}
+
+A [Query](/sending-messages#sending-queries) is a synchronous operation that is used to get the state of a Workflow Execution.
+
+### How to define a Query {#define-query}
+
+A Query has a name and can have arguments.
+
+- The name, also called a Query type, is a string.
+- The arguments must be [serializable](/dataconversion).
+
+Workflows can answer synchronous [Queries](/sending-messages#sending-queries) and receive [Signals](/sending-messages#sending-signals).
+
+All interface methods must have one of the following attributes:
+
+- **#[WorkflowMethod]** indicates an entry point to a Workflow.
+  It contains parameters that specify timeouts and a Task Queue name.
+  Required parameters (such as `executionStartToCloseTimeoutSeconds`) that are not specified through the attribute must be provided at runtime.
+- **#[SignalMethod]** indicates a method that reacts to external signals. It must have a `void` return type.
+- **#[QueryMethod]** indicates a method that reacts to synchronous query requests. It must have a non `void` return type.
+
+> It is possible (though not recommended for usability reasons) to annotate concrete class implementation.
+
+You can have more than one method with the same attribute (except #[WorkflowMethod]).
+
+For example:
+
+```php
+use Temporal\Workflow\WorkflowInterface;
+use Temporal\Workflow\WorkflowMethod;
+use Temporal\Workflow\SignalMethod;
+use Temporal\Workflow\QueryMethod;
+
+#[WorkflowInterface]
+interface FileProcessingWorkflow
+{
+    #[WorkflowMethod]
+    public function processFile(Argument $args);
+
+    #[QueryMethod("history")]
+    public function getHistory(): array;
+
+    #[QueryMethod("status")]
+    public function getStatus(): string;
+
+    #[SignalMethod]
+    public function retryNow(): void;
+
+    #[SignalMethod]
+    public function abandon(): void;
+}
+```
+
+Note that name parameter of Workflow method attributes can be used to specify name of Workflow, Signal and Query types.
+If name is not specified the short name of the Workflow interface is used.
+
+In the above code the `#[WorkflowMethod(name)]` is not specified, thus the Workflow Type defaults to `"FileProcessingWorkflow"`.
+
+### How to handle a Query {#handle-query}
+
+Queries are handled by your Workflow.
+
+Don't include any logic that causes [Command](/workflow-execution#command) generation within a Query handler (such as executing Activities).
+Including such logic causes unexpected behavior.
+
+You can add custom Query types to handle Queries such as Querying the current state of a
+Workflow, or Querying how many Activities the Workflow has completed. To do this, you need to set
+up a Query handler using method attribute `QueryMethod` or `Workflow::registerQuery`.
+
+```php
+#[Workflow\WorkflowInterface]
+class YourWorkflow
+{
+    #[Workflow\QueryMethod]
+    public function getValue()
+    {
+        return 42;
+    }
+
+    #[Workflow\WorkflowMethod]
+    public function run()
+    {
+        // workflow code
+    }
+}
+```
+
+The handler function can receive any number of input parameters, but all input parameters must be
+serializable. The following sample code sets up a Query handler that handles the Query type of
+`currentState`:
+
+```php
+#[Workflow\WorkflowInterface]
+class YourWorkflow
+{
+    private string $currentState;
+
+    #[Workflow\QueryMethod('current_state')]
+    public function getCurrentState(): string
+    {
+        return $this->currentState;
+    }
+
+    #[Workflow\WorkflowMethod]
+    public function run()
+    {
+        // Your normal Workflow code begins here, and you update the currentState
+        // as the code makes progress.
+        $this->currentState = 'waiting timer';
+        try{
+            yield Workflow::timer(DateInterval::createFromDateString('1 hour'));
+        } catch (\Throwable $e) {
+            $this->currentState = 'timer failed';
+            throw $e;
+        }
+
+        $yourActivity = Workflow::newActivityStub(
+            YourActivityInterface::class,
+            ActivityOptions::new()->withScheduleToStartTimeout(60)
+        );
+
+        $this->currentState = 'waiting activity';
+        try{
+            yield $yourActivity->doSomething('some input');
+        } catch (\Throwable $e) {
+            $this->currentState = 'activity failed';
+            throw $e;
+        }
+
+        $this->currentState = 'done';
+
+        return null;
+    }
+}
+```
+
+You can also issue a Query from code using the `QueryWorkflow()` API on a Temporal Client object.
+
+Use `WorkflowStub` to Query Workflow instances from your Client code (can be applied to both running and closed Workflows):
+
+```php
+$workflow = $workflowClient->newWorkflowStub(
+    YourWorkflow::class,
+    WorkflowOptions::new()
+);
+
+$workflowClient->start($workflow);
+
+var_dump($workflow->getCurrentState());
+sleep(60);
+var_dump($workflow->getCurrentState());
+```
+
+### How to send a Query {#send-query}
+
+Queries are sent from a Temporal Client.
+
+## How to develop with Updates {#updates}
+
+An [Update](/sending-messages#sending-updates) is an operation that can mutate the state of a Workflow Execution and return a response.
+
+### Define Update {#define-update}
+
+**How to define an Update using the PHP SDK.**
+
+Workflow Updates handlers are methods in your Workflow Definition designed to handle updates.
+These updates can be triggered during the lifecycle of a Workflow Execution.
+
+An Update handler has a name, arguments, response, and an optional validator.
+
+- The name, also called an Update type, is a string.
+- The arguments and response must be [serializable](/dataconversion).
+
+The [`#[UpdateMethod]`](https://php.temporal.io/classes/Temporal-Workflow-UpdateMethod.html) attribute indicates that the method is used to handle and respond to update requests.
+
+```php
+#[UpdateMethod]
+public function myUpdate(string $value);
+```
+
+### Handle Update {#handle-updates}
+
+**How to handle Updates in a Workflow using the PHP SDK.**
+
+Workflows listen for Update by the Update's name.
+
+Use the `#[UpdateMethod]` attribute to handle Updates in the Workflow interface.
+The handler method can accept multiple serializable input parameters, but it's recommended using only a single parameter.
+The function can return a [serializable](/dataconversion) value or `void`.
+
+```php
+#[WorkflowInterface]
+interface FileProcessingWorkflow {
+    #[WorkflowMethod]
+    #[ReturnType(ProcessResult::class)]
+    public function processFile(File $file);
+
+    #[UpdateMethod]
+    public function pauseProcessing(): void;
+}
+```
+
+Update handlers, unlike Query handlers, can change Workflow state.
+
+The Updates type defaults to the name of the method.
+To overwrite this default naming and assign a custom Update type, use the `#[UpdateMethod]` attribute with the `name` parameter.
+
+```php
+#[WorkflowInterface]
+interface FileProcessingWorkflow {
+    #[WorkflowMethod]
+    public function processFiles(FileList $files);
+
+    #[UpdateMethod(name: 'pause')]
+    public function pauseProcessing(): void;
+}
+```
+
+**Register Update Handler dynamically**
+
+You can register Update handlers dynamically using the `Workflow::registerUpdate()` method.
+The third argument is an optional Update validator. The validator function must have the same parameters as the handler and throw an exception if the validation fails.
+
+```php
+Workflow::registerUpdate(
+    name: 'pause',
+    handler: fn() => $this->paused = true,
+    validator: fn() => $this->paused === false or throw new \Exception('Workflow is already paused'),
+);
+```
+
+### Validate Update {#validate-an-update}
+
+**How to validate Updates in a Workflow using the PHP SDK.**
+
+Validate certain aspects of the data sent to the Workflow using an Update Validator method. For instance, a counter Workflow might never want to accept a non-positive number. Use the [`#[UpdateValidatorMethod]`](https://php.temporal.io/classes/Temporal-Workflow-UpdateValidatorMethod.html) attribute and set the `forUpdate` argument to the name of your Update handler. Your Update Validator should accept the same input parameters as your Update Handler and return `void`.
+
+```php
+#[WorkflowInterface]
+interface GreetingWorkflow {
+    #[WorkflowMethod]
+    public function getGreetings(): array;
+
+    #[UpdateMethod]
+    public function addGreeting(string $name): int;
+
+    #[UpdateValidatorMethod(forUpdate: 'addGreeting')]
+    public function addGreetingValidator(string $name): void;
+}
+```
+
+### Send Update from a Client {#send-update-from-client}
+
+**How to send an Update to a Workflow Execution from a Temporal Client using the PHP SDK.**
+
+To send an Update to a Workflow Execution from a Client, call the Update method, annotated with `#[UpdateMethod]` in the Workflow interface, from the Client code.
+
+In the following Client code example, start the Workflow `getGreetings` and call the Update method `addGreeting` that is handled in the Workflow.
+
+```php
+// Create a typed Workflow stub for GreetingsWorkflow
+$workflow = $workflowClient->newWorkflowStub(GreetingWorkflow::class, $workflowOptions);
+
+// Start the Workflow
+$run = $workflowClient->start($workflow);
+
+// Send an update to the Workflow. addGreeting returns
+// the number of greetings our workflow has received.
+$count = $workflow->addGreeting("World");
+```
+
+**Async accept**
+
+In Workflow Update methods, all Workflow features are available, such as executing Activities and child Workflows, and waiting on timers/conditions.
+In cases where it's known that the update will take a long time to execute, or you are not interested in the outcome of its execution, you can use the stub method [`startUpdate`](https://php.temporal.io/classes/Temporal-Client-WorkflowStubInterface.html#method_startUpdate) and move on immediately after receiving the validation result.
+Note that the processing Workflow Worker must be available.
+Otherwise, the request may block indefinitely or fail due to a timeout.
+
+```php
+use Ramsey\Uuid\UuidInterface;
+use Temporal\Client\Update\UpdateOptions;
+use Temporal\Client\Update\WaitPolicy;
+use Temporal\Client\Update\LifecycleStage;
+
+// Create an untyped Workflow stub for GreetingsWorkflow
+$stub = $client->newUntypedWorkflowStub('GreetingWorkflow', $workflowOptions);
+
+// Start the Workflow
+$run = $client->start($stub);
+
+// Send an Update to the Workflow. UpdateHandle returns
+$handle = $stub->startUpdate('addGreeting', 'World');
+
+// Use the UpdateHandle to get the Update result with timeout 2.5 seconds
+$result = $handle->getResult(timeout: 2.5);
+
+// You can get more control using UpdateOptions
+$resultUuid = $stub->startUpdate(
+    UpdateOptions::new('storeGreetings', LifecycleStage::StageCompleted)
+        ->withResultType(UuidInterface::class)
+ )->getResult();
+```
+
+#### Update-With-Start {#update-with-start}
+
+[Update-with-Start](/sending-messages#update-with-start) lets you [send an Update](#send-update-from-client) that checks whether an already-running Workflow with that ID exists:
+
+- If the Workflow exists, the Update is processed.
+- If the Workflow does not exist, a new Workflow Execution is started with the given ID, and the Update is processed before the main Workflow method starts to execute.
+
+You can:
+
+- Use the [`updateWithStart`](https://php.temporal.io/classes/Temporal-Client-WorkflowClientInterface.html#method_updateWithStart) WorkflowClient API.
+  It returns once the requested Update wait stage has been reached; or when the request times out.
+- Use the [`UpdateHandle`](https://php.temporal.io/classes/Temporal-Client-Update-UpdateHandle.html) to retrieve a result from the Update.
+
+You provide:
+
+- A WorkflowStub created from [`WorkflowOptions`](https://php.temporal.io/classes/Temporal-Client-WorkflowOptions.html).
+  - The `WorkflowOptions` require a [Workflow Id Conflict Policy](/workflow-execution/workflowid-runid#workflow-id-conflict-policy) to be specified.
+  - Choose ["Use Existing"](https://php.temporal.io/classes/Temporal-Common-WorkflowIdConflictPolicy.html#enumcase_UseExisting) and use an idempotent Update handler to ensure your code can be executed again in case of a Client failure.
+    Not all `WorkflowOptions` are allowed.
+    For example, specifying a Cron Schedule will result in an error.
+
+- Update name or [`UpdateOptions`](https://php.temporal.io/classes/Temporal-Client-Update-UpdateOptions.html).
+  This mirrors the approach used for [Update Workflow](#send-update-from-client).
+  - For Update-with-Start, the Workflow Id is optional.
+  - When specified, the Id must match the one used in `WorkflowOptions`.
+  - Since a running Workflow Execution may not already exist, you can't set a Run Id.
+
+For example:
+
+```php
+$stub = $workflowClient->newUntypedWorkflowStub(
+    ShoppingCartWorkflow::class,
+    WorkflowOptions::new()
+        ->withTaskQueue('service-queue')
+        ->withWorkflowId($cartId)
+        ->withWorkflowIdConflictPolicy(WorkflowIdConflictPolicy::UseExisting),
+);
+$handle = $workflowClient->updateWithStart(
+    workflow: $stub,
+    update: 'addItem',
+    updateArgs: [$itemId, $quantity],
+);
+
+$price = $handle->getResult();
+```
+
+To wait on the Update result, run the Update with the wait stage set to [`LifecycleStage::StageCompleted`](https://php.temporal.io/classes/Temporal-Client-Update-LifecycleStage.html#enumcase_StageCompleted).
+This returns once the update result is available; or when the API call times out.
+
+For example:
+
+```php
+$handle = $workflowClient->updateWithStart(
+    workflow: $stub,
+    update: UpdateOptions::new('addItem', LifecycleStage::StageCompleted),
+    updateArgs: [$itemId, $quantity],
+);
+
+assert($handle->hasResult() === true);
+$price = $handle->getResult();
+```
+
+## Message handler patterns {#message-handler-patterns}
+
+This section covers common write operations, such as Signal and Update handlers.
+It doesn't apply to pure read operations, like Queries or Update Validators.
+
+:::tip
+
+For additional information, see [Inject work into the main Workflow](/handling-messages#injecting-work-into-main-workflow), [Ensuring your messages are processed exactly once](/handling-messages#exactly-once-message-processing), and [this sample](https://github.com/temporalio/samples-php/tree/master/app/src/SafeMessageHandlers) demonstrating safe `async` message handling.
+:::
+
+### Add wait conditions to block
+
+Sometimes, async Signal or Update handlers need to meet certain conditions before they should continue.
+You can use a wait condition ([`Workflow::await()`](https://php.temporal.io/classes/Temporal-Workflow.html#method_await)) to set a function that prevents the code from proceeding until the condition returns `true`.
+This is an important feature that helps you control your handler logic.
+
+Here are two important use cases for `Workflow::await()`:
+
+- Waiting in a handler until it is appropriate to continue.
+- Waiting in the main Workflow until all active handlers have finished.
+
+The condition state you're waiting for can be updated by and reflect any part of the Workflow code.
+This includes the main Workflow method, other handlers, or child coroutines spawned by the main Workflow method (see [`Workflow::async()`](https://php.temporal.io/classes/Temporal-Workflow.html#method_async).
+
+### Use wait conditions in handlers
+
+It's common to use a Workflow wait condition to wait until a handler should start.
+You can also use wait conditions anywhere else in the handler to wait for a specific condition to become `true`.
+This allows you to write handlers that pause at multiple points, each time waiting for a required condition to become `true`.
+
+Consider a `readyForUpdateToExecute` method that runs before your Update handler executes.
+The `Workflow::await` method waits until your condition is met:
+
+```php
+    #[UpdateMethod]
+    public function myUpdate(UpdateInput $input)
+    {
+        yield Workflow::await(
+            fn() => $this->readyForUpdateToExecute($input),
+        );
+
+        // ...
+    }
+```
+
+Remember: Handlers can execute before the main Workflow method starts.
+
+### Ensure your handlers finish before the Workflow completes {#wait-for-message-handlers}
+
+Workflow wait conditions can ensure your handler completes before a Workflow finishes.
+When your Workflow uses async Signal or Update handlers, your main Workflow method can return or continue-as-new while a handler is still waiting on an async task, such as an Activity result.
+The Workflow completing may interrupt the handler before it finishes crucial work and cause client errors when trying retrieve Update results.
+Use [`Workflow::await()`](https://php.temporal.io/classes/Temporal-Workflow.html#method_await) and [`Workflow::allHandlersFinished()`](https://php.temporal.io/classes/Temporal-Workflow.html#method_allHandlersFinished) to address this problem and allow your Workflow to end smoothly:
+
+```php
+#[WorkflowInterface]
+class MyWorkflow
+{
+    #[WorkflowMethod]
+    public function run()
+    {
+        // ...
+        yield Workflow::await(fn() => Workflow::allHandlersFinished());
+        return "workflow-result";
+    }
+}
+```
+
+By default, your Worker will log a warning when you allow a Workflow Execution to finish with unfinished handler executions.
+You can silence these warnings on a per-handler basis by passing the `unfinishedPolicy` argument to the [`UpdateMethod`](https://php.temporal.io/classes/Temporal-Workflow-UpdateMethod.html) / [`SignalMethod`](https://php.temporal.io/classes/Temporal-Workflow-SignalMethod.html) attribute:
+
+```php
+#[UpdateMethod(unfinishedPolicy: HandlerUnfinishedPolicy::Abandon)]
+public function myUpdate()
+{
+    // ...
+}
+```
+
+See [Finishing handlers before the Workflow completes](/handling-messages#finishing-message-handlers) for more information.
+
+### Use `#[WorkflowInit]` to operate on Workflow input before any handler executes
+
+Normally, your Workflows constructor won't have any parameters.
+However, if you use the `#[WorkflowInit]` attribute on your constructor, you can give it the same [Workflow parameters](/develop/php/core-application#workflow-parameters) as your `#[WorkflowMethod]`.
+The SDK will then ensure that your constructor receives the Workflow input arguments that the [Client sent](/develop/php/temporal-client#start-workflow-execution).
+The Workflow input arguments are also passed to your `#[WorkflowMethod]` method -- that always happens, whether or not you use the `#[WorkflowInit]` attribute.
+This is useful if you have message handlers that need access to Workflow input: see [Initializing the Workflow first](/sending-messages).
+
+Here's an example.
+Notice that the constructor and `getGreeting` must have the same parameters:
+
+```php
+use Temporal\Workflow;
+
+#[Workflow\WorkflowInterface]
+class GreetingExample
+{
+    private readonly string $nameWithTitle;
+    private bool $titleHasBeenChecked;
+
+    // Note the attribute is on a public constructor
+    #[Workflow\WorkflowInit]
+    public function __construct(string $input)
+    {
+        $this->nameWithTitle = 'Sir ' . $input;
+        $this->titleHasBeenChecked = false;
+    }
+
+    #[Workflow\WorkflowMethod]
+    public function getGreeting(string $input)
+    {
+        yield Workflow::await(fn() => $this->titleHasBeenChecked);
+        return "Hello " . $this->nameWithTitle;
+    }
+
+    #[Workflow\UpdateMethod]
+    public function checkTitleValidity()
+    {
+        // 👉 The handler is now guaranteed to see the workflow input
+        // after it has been processed by the constructor.
+        $isValid = yield Workflow::executeActivity('activity.checkTitleValidity', [$this->nameWithTitle]);
+        $this->titleHasBeenChecked = true;
+        return $isValid;
+    }
+}
+```
+
+:::note
+
+By default, the Workflow Handler runs before Signals and Updates in PHP SDK v2. This behavior is incorrect.
+To avoid breaking already written Workflows, since PHP SDK v2.11.0, a [feature flag](https://php.temporal.io/classes/Temporal-Worker-FeatureFlags.html#property_workflowDeferredHandlerStart) was added to enhance the behavior of the Workflow Handler.
+Make sure to set this flag to `true` to enable the correct behavior.
+
+:::
+
+### Use `Mutex` to prevent concurrent handler execution {#control-handler-concurrency}
+
+Concurrent processes can interact in unpredictable ways.
+Incorrectly written [concurrent message-passing](/handling-messages#message-handler-concurrency) code may not work correctly when multiple handler instances run simultaneously.
+Here's an example of a pathological case:
+
+```php
+use Temporal\Workflow;
+
+#[Workflow\WorkflowInterface]
+class MyWorkflow
+{
+    // ...
+
+    #[Workflow\SignalMethod]
+    public function badAsyncHandler()
+    {
+        $data = yield Workflow::executeActivity(
+            type: 'fetch_data',
+            args: ['url' => 'http://example.com'],
+            options: ActivityOptions::new()->withStartToCloseTimeout('10 seconds'),
+        );
+        $this->x = $data->x;
+        # 🐛🐛 Bug!! If multiple instances of this handler are executing concurrently, then
+        # there may be times when the Workflow has $this->x from one Activity execution and $this->y from another.
+        yield Workflow::timer(1);  # or await anything else
+        $this->y = $data->y;
+    }
+}
+```
+
+Coordinating access using `Mutex` corrects this code.
+Locking makes sure that only one handler instance can execute a specific section of code at any given time:
+
+```php
+use Temporal\Workflow;
+
+#[Workflow\WorkflowInterface]
+class MyWorkflow
+{
+    // ...
+
+    private Workflow\Mutex $mutex;
+
+    public function __construct()
+    {
+        $this->mutex = new Workflow\Mutex();
+    }
+
+    #[Workflow\SignalMethod]
+    public function safeAsyncHandler()
+    {
+        $data = yield Workflow::executeActivity(
+            type: 'fetch_data',
+            args: ['url' => 'http://example.com'],
+            options: ActivityOptions::new()->withStartToCloseTimeout('10 seconds'),
+        );
+        yield Workflow::runLocked($this->mutex, function () use ($data) {
+            $this->x = $data->x;
+            # ✅ OK: the scheduler may switch now to a different handler execution, or to the main workflow
+            # method, but no other execution of this handler can run until this execution finishes.
+            yield Workflow::timer(1);  # or await anything else
+            $this->y = $data->y;
+        });
+    }
+```
+
+## Message handler troubleshooting {#message-handler-troubleshooting}
+
+When sending a Signal, Update, or Query to a Workflow, your Client might encounter the following errors:
+
+- **The client can't contact the server**:
+  You'll receive a [`ServiceClientException`](https://php.temporal.io/classes/Temporal-Exception-Client-ServiceClientException.html) in case of a server connection error.
+  [How to configure RPC Retry Policy](/develop/php/temporal-client#configure-rpc-retry-policy)
+
+- **RPC timout**:
+  You'll receive a [`TimeoutException`](https://php.temporal.io/classes/Temporal-Exception-Client-TimeoutException.html) in case of an RPC timeout.
+  [How to configure RPC timeout](/develop/php/temporal-client#configure-rpc-timeout)
+
+- **The workflow does not exist**:
+  You'll receive a [`WorkflowNotFoundException`](https://php.temporal.io/classes/Temporal-Exception-Client-WorkflowNotFoundException.html) exception.
+
+See [Exceptions in message handlers](/handling-messages#exceptions) for a non–PHP-specific discussion of this topic.
+
+### Problems when sending a Signal {#signal-problems}
+
+When using Signal, the only exception that will result from your requests during its execution is `ServiceClientException`.
+All handlers may experience additional exceptions during the initial (pre-Worker) part of a handler request lifecycle.
+
+For Queries and Updates, the client waits for a response from the Worker.
+If an issue occurs during the handler Execution by the Worker, the client may receive an exception.
+
+### Problems when sending an Update {#update-problems}
+
+When working with Updates, you may encounter these errors:
+
+- **No Workflow Workers are polling the Task Queue**:
+  Your request will be retried by the SDK Client indefinitely.
+  You can [configure RPC timeout](/develop/php/temporal-client#configure-rpc-timeout) to impose a timeout.
+  This raises a [`WorkflowUpdateRPCTimeoutOrCanceledException`](https://php.temporal.io/classes/Temporal-Exception-Client-WorkflowUpdateRPCTimeoutOrCanceledException.html).
+
+- **Update failed**: You'll receive a [`WorkflowUpdateException`](https://php.temporal.io/classes/Temporal-Exception-Client-WorkflowUpdateException.html) exception.
+  There are two ways this can happen:
+
+  - The Update was rejected by an Update validator defined in the Workflow alongside the Update handler.
+
+  - The Update failed after having been accepted.
+
+Update failures are like [Workflow failures](/references/failures#errors-in-workflows).
+Issues that cause a Workflow failure in the main method also cause Update failures in the Update handler.
+These might include:
+
+    - A failed Child Workflow
+    - A failed Activity (if the Activity retries have been set to a finite number)
+    - The Workflow author raising `ApplicationFailure`
+
+- **The handler caused the Workflow Task to fail**:
+  A [Workflow Task Failure](/references/failures#errors-in-workflows) causes the server to retry Workflow Tasks indefinitely. What happens to your Update request depends on its stage:
+  - If the request hasn't been accepted by the server, you receive a [`WorkflowUpdateException`](https://php.temporal.io/classes/Temporal-Exception-Client-WorkflowUpdateException.html).
+  - If the request has been accepted, it is durable.
+    Once the Workflow is healthy again after a code deploy, use an [`UpdateHandle`](https://php.temporal.io/classes/Temporal-Client-Update-UpdateHandle.html) to fetch the Update result.
+
+- **The Workflow finished while the Update handler execution was in progress**:
+  You'll receive a [`WorkflowUpdateException`](https://php.temporal.io/classes/Temporal-Exception-Client-WorkflowUpdateException.html).
+  This happens if the Workflow finished while the Update handler execution was in progress, for example because
+
+  - The Workflow was canceled or failed.
+
+  - The Workflow completed normally or continued-as-new and the Workflow author did not [wait for handlers to be finished](/handling-messages#finishing-message-handlers).
+
+### Problems when sending a Query {#query-problems}
+
+When working with Queries, you may encounter these errors:
+
+- **There is no Workflow Worker polling the Task Queue**:
+  You'll receive a [`WorkflowNotFoundException`](https://php.temporal.io/classes/Temporal-Exception-Client-WorkflowNotFoundException.html).
+
+- **Query failed**:
+  You'll receive a [`WorkflowQueryException`](https://php.temporal.io/classes/Temporal-Exception-Client-WorkflowQueryException.html) if something goes wrong during a Query.
+  Any exception in a Query handler will trigger this error.
+  This differs from Signal and Update requests, where exceptions can lead to Workflow Task Failure instead.
+
+- **The handler caused the Workflow Task to fail.**
+  This would happen, for example, if the Query handler blocks the thread for too long without yielding.
+
+## Dynamic components {#dynamic-handler}
+
+Temporal supports Dynamic Queries, Signals, and Updates.
+These are unnamed handlers that are invoked if no other statically defined handler with the given name exists.
+
+Dynamic Handlers provide flexibility to handle cases where the names of Queries, Signals, or Updates aren't known at run time.
+
+:::caution
+
+Dynamic Handlers should be used judiciously as a fallback mechanism rather than the primary approach.
+Overusing them can lead to maintainability and debugging issues down the line.
+
+Instead, Signals, or Queries should be defined statically whenever possible, with clear names that indicate their purpose.
+Use static definitions as the primary way of structuring your Workflows.
+
+Reserve Dynamic Handlers for cases where the handler names are not known at development time and need to be looked up dynamically at runtime.
+They are meant to handle edge cases and act as a catch-all, not as the main way of invoking logic.
+
+:::
+
+### How to set a Dynamic Query {#set-a-dynamic-query}
+
+A Dynamic Query in Temporal is a Query method that is invoked dynamically at runtime if no other Query with the same name is registered.
+Use [`Workflow::registerDynamicQuery()`](https://php.temporal.io/classes/Temporal-Workflow.html#method_registerDynamicQuery) to set a dynamic Query handler.
+
+The Query Handler parameters must accept a `string` name and [`ValuesInterface`](https://php.temporal.io/classes/Temporal-DataConverter-ValuesInterface.html) for the arguments.
+
+```php
+Workflow::registerDynamicQuery(function (string $name, ValuesInterface $arguments): string {
+    return \sprintf(
+        'Got query `%s` with %d arguments',
+        $name,
+        $arguments->count(),
+    );
+});
+```
+
+### How to set a Dynamic Signal {#set-a-dynamic-signal}
+
+A Dynamic Signal in Temporal is a Signal that is invoked dynamically at runtime if no other Signal with the same input is registered.
+Use [`Workflow::registerDynamicSignal()`](https://php.temporal.io/classes/Temporal-Workflow.html#method_registerDynamicSignal) to set a dynamic Signal handler.
+
+The Signal Handler parameters must accept a `string` name and [`ValuesInterface`](https://php.temporal.io/classes/Temporal-DataConverter-ValuesInterface.html) for the arguments.
+
+```php
+Workflow::registerDynamicSignal(function (string $name, ValuesInterface $arguments): void {
+     Workflow::getLogger()->info(\sprintf(
+         'Executed signal `%s` with %d arguments',
+         $name,
+         $arguments->count(),
+     ));
+ });
+```
+
+### How to set a Dynamic Update {#set-a-dynamic-update}
+
+A Dynamic Update in Temporal is an Update that is invoked dynamically at runtime if no other Update with the same input is registered.
+Use [`Workflow::registerDynamicUpdate()`](https://php.temporal.io/classes/Temporal-Workflow.html#method_registerDynamicUpdate) to set a dynamic Update handler.
+
+The method accepts two arguments:
+
+- Update Handler
+- Update Validator (optional) that should throw an exception if the validation fails
+
+Both the Handler and the Validator must accept a `string` name and [`ValuesInterface`](https://php.temporal.io/classes/Temporal-DataConverter-ValuesInterface.html) for the arguments.
+
+```php
+Workflow::registerDynamicUpdate(
+    static fn(string $name, ValuesInterface $arguments): string => \sprintf(
+        'Got update `%s` with %d arguments',
+        $name,
+        $arguments->count(),
+    ),
+    static fn(string $name, ValuesInterface $arguments) => \str_starts_with(
+        $name,
+        'update_',
+    ) or throw new \InvalidArgumentException('Invalid update name'),
+);
+```
+
+---
+
+## Observability - PHP SDK
+
+The observability section of the Temporal Developer's guide covers the many ways to view the current state of your [Temporal Application](/temporal#temporal-application)—that is, ways to view which [Workflow Executions](/workflow-execution) are tracked by the [Temporal Platform](/temporal#temporal-platform) and the state of any specified Workflow Execution, either currently or at points of an execution.
+
+This section covers features related to viewing the state of the application, including:
+
+- [Log from a Workflow](#logging)
+- [Visibility](#visibility)
+
+## Log from a Workflow {#logging}
+
+Logging enables you to record critical information during code execution.
+Loggers create an audit trail and capture information about your Workflow's operation.
+An appropriate logging level depends on your specific needs.
+During development or troubleshooting, you might use debug or even trace.
+In production, you might use info or warn to avoid excessive log volume.
+
+The logger supports the following logging levels:
+
+| Level   | Use                                                                                                       |
+| ------- | --------------------------------------------------------------------------------------------------------- |
+| `TRACE` | The most detailed level of logging, used for very fine-grained information.                               |
+| `DEBUG` | Detailed information, typically useful for debugging purposes.                                            |
+| `INFO`  | General information about the application's operation.                                                    |
+| `WARN`  | Indicates potentially harmful situations or minor issues that don't prevent the application from working. |
+| `ERROR` | Indicates error conditions that might still allow the application to continue running.                    |
+
+The Temporal SDK core normally uses `WARN` as its default logging level.
+
+To get a PSR-3 compatible logger in your Workflow code, use the [`Workflow::getLogger()`](https://php.temporal.io/classes/Temporal-Workflow.html#method_getLogger) method.
+
+```php
+use Temporal\Workflow;
+
+#[Workflow\WorkflowInterface]
+class MyWorkflow
+{
+    #[Workflow\WorkflowMethod]
+    public function execute(string $param): \Generator
+    {
+        Workflow::getLogger()->info('Workflow started', ['parameter' => $param]);
+
+        // Your workflow implementation
+
+        Workflow::getLogger()->info('Workflow completed');
+        return 'Done';
+    }
+}
+```
+
+The Workflow logger automatically enriches log context with the current Task Queue name.
+
+Logs in replay mode are omitted unless the [`enableLoggingInReplay`](https://php.temporal.io/classes/Temporal-Worker-WorkerOptions.html#method_withEnableLoggingInReplay) Worker option is set to true.
+
+```php
+$factory = WorkerFactory::create();
+$worker = $factory->newWorker('your-task-queue', WorkerOptions::new()
+    ->withEnableLoggingInReplay(true)
+);
+```
+
+### Default Logger
+
+By default, PHP SDK uses a [`StderrLogger`](https://php.temporal.io/classes/Temporal-Worker-Logger-StderrLogger.html) that outputs log messages to the standard error stream.
+These messages are automatically captured by RoadRunner and incorporated into its logging system with the INFO level, ensuring proper log collection in both development and production environments.
+For more details on RoadRunner's logging capabilities, see the [RoadRunner Logger documentation](https://docs.roadrunner.dev/docs/logging-and-observability/logger).
+
+### How to provide a custom logger {#custom-logger}
+
+You can set a custom PSR-3 compatible logger when creating a Worker:
+
+```php
+$myLogger = new MyLogger();
+
+$workerFactory = WorkerFactory::create(converter: $converter);
+$worker = $workerFactory->newWorker(
+    taskQueue: 'my-task-queue',
+    logger: $myLogger,
+);
+```
+
+## Visibility APIs {#visibility}
+
+The term Visibility, within the Temporal Platform, refers to the subsystems and APIs that enable an operator to view Workflow Executions that currently exist within a Temporal Service.
+
+### How to use Search Attributes {#search-attributes}
+
+The typical method of retrieving a Workflow Execution is by its Workflow Id.
+
+However, sometimes you'll want to retrieve one or more Workflow Executions based on another property. For example, imagine you want to get all Workflow Executions of a certain type that have failed within a time range, so that you can start new ones with the same arguments.
+
+You can do this with [Search Attributes](/search-attribute).
+
+- [Default Search Attributes](/search-attribute#default-search-attribute) like `WorkflowType`, `StartTime` and `ExecutionStatus` are automatically added to Workflow Executions.
+- _Custom Search Attributes_ can contain their own domain-specific data (like `customerId` or `numItems`).
+  - A few [generic Custom Search Attributes](/search-attribute#custom-search-attribute) like `CustomKeywordField` and `CustomIntField` are created by default in Temporal's [Docker Compose](https://github.com/temporalio/docker-compose).
+
+The steps to using custom Search Attributes are:
+
+- Create a new Search Attribute in your Temporal Service using `temporal operator search-attribute create` or the Cloud UI.
+- Set the value of the Search Attribute for a Workflow Execution:
+  - On the Client by including it as an option when starting the Execution.
+  - In the Workflow by calling `UpsertSearchAttributes`.
+- Read the value of the Search Attribute:
+  - On the Client by calling `DescribeWorkflow`.
+  - In the Workflow by looking at `WorkflowInfo`.
+- Query Workflow Executions by the Search Attribute using a [List Filter](/list-filter):
+  - [In the Temporal CLI](/cli/workflow#list).
+  - In code by calling `ListWorkflowExecutions`.
+
+Here is how to query Workflow Executions:
+
+Use the [listWorkflowExecutions()](https://php.temporal.io/classes/Temporal-Client-WorkflowClientInterface.html#method_listWorkflowExecutions) method on the Client and pass a [List Filter](/list-filter) as an argument to filter the listed Workflows.
+The result is an iterable paginator, so you can use the `foreach` loop to iterate over the results.
+
+```php
+$paginator = $workflowClient->listWorkflowExecutions('WorkflowType="GreetingWorkflow"');
+
+foreach ($paginator as $info) {
+    echo "Workflow ID: {$info->execution->getID()}\n";
+}
+```
+
+### How to set custom Search Attributes {#custom-search-attributes}
+
+After you've created custom Search Attributes in your Temporal Service (using `temporal operator search-attribute create` or the Cloud UI), you can set the values of the custom Search Attributes when starting a Workflow.
+
+To set custom Search Attributes, use the `withTypedSearchAttributes` method on `WorkflowOptions` for a Workflow stub.
+Typed search attributes are a `TypedSearchAttributes` collection.
+
+```php
+$keyDestinationTime = SearchAttributeKey::forDatetime('DestinationTime');
+$keyOrderId = SearchAttributeKey::forKeyword('OrderId');
+
+$workflow = $workflowClient->newWorkflowStub(
+    OrderWorkflowInterface::class,
+    WorkflowOptions::new()
+        ->withWorkflowExecutionTimeout('10 minutes')
+        ->withTypedSearchAttributes(
+            TypedSearchAttributes::empty()
+                ->withValue($keyOrderId, $orderid)
+                ->withValue($keyDestinationTime, new \DateTimeImmutable('2028-11-05T00:10:07Z'))
+        ),
+);
+```
+
+### How to upsert Search Attributes {#upsert-search-attributes}
+
+Within the Workflow code, you can dynamically add or update Search Attributes using [`upsertTypedSearchAttributes`](https://php.temporal.io/classes/Temporal-Workflow.html#method_upsertTypedSearchAttributes).
+This method is particularly useful for Workflows whose attributes need to change based on internal logic or external events.
+
+```php
+#[Workflow\UpdateMethod]
+public function postponeDestinationTime(\DateInterval $interval)
+{
+    // Get the key for the DestinationTime attribute
+    $keyDestinationTime = SearchAttributeKey::forDatetime('DestinationTime');
+
+    /** @var DateTimeImmutable $destinationTime */
+    $destinationTime = Workflow::getInfo()->typedSearchAttributes->get($keyDestinationTime);
+
+    Workflow::upsertTypedSearchAttributes(
+        $keyDestinationTime->valueSet($destinationTime->add($interval)),
+    );
+}
+```
+
+### How to remove a Search Attribute from a Workflow {#remove-search-attribute}
+
+To remove a Search Attribute that was previously set, set it to an empty Map.
+
+```php
+#[Workflow\UpdateMethod]
+public function unsetDestinationTime()
+{
+    // Get the key for the DestinationTime attribute
+    $keyDestinationTime = SearchAttributeKey::forDatetime('DestinationTime');
+
+    Workflow::upsertTypedSearchAttributes(
+        $keyDestinationTime->valueUnset(),
+    );
+}
+```
+
+---
+
+## Schedules - PHP SDK
+
+This page shows how to do the following:
+
+- [How to use Start Delay](#start-delay)
+- [How to use Temporal Cron Jobs](#temporal-cron-jobs)
+
+## How to use Start Delay {#start-delay}
+
+Use the Workflow [Start Delay](/workflow-execution/timers-delays) functionality if you need to delay the execution of the Workflow without the need for regular launches.
+Here you simply specify the time to wait before dispatching the first Workflow task.
+
+```php
+$workflow = $workflowClient->newWorkflowStub(
+    GreeterWorkflowInterface::class,
+    WorkflowOptions::new()
+        ->withWorkflowStartDelay(CarbonInterval::minutes(10)),
+);
+$workflowClient->start($workflow, 'Hello world!');
+```
+
+## How to use Temporal Cron Jobs {#temporal-cron-jobs}
+
+:::caution Cron support is not recommended
+
+We recommend using [Schedules](https://docs.temporal.io/schedule) instead of Cron Jobs.
+Schedules were built to provide a better developer experience, including more configuration options and the ability to update or pause running Schedules.
+
+:::
+
+A [Temporal Cron Job](/cron-job) is the series of Workflow Executions that occur when a Cron Schedule is provided in the call to spawn a Workflow Execution.
+
+A Cron Schedule is provided as an option when the call to spawn a Workflow Execution is made.
+
+Set your Cron Schedule with `CronSchedule('* * * * *')`.
+Temporal Workflow Schedule Cron strings follow this format:
+
+```
+┌───────────── minute (0 - 59)
+│ ┌───────────── hour (0 - 23)
+│ │ ┌───────────── day of the month (1 - 31)
+│ │ │ ┌───────────── month (1 - 12)
+│ │ │ │ ┌───────────── day of the week (0 - 6) (Sunday to Saturday)
+│ │ │ │ │
+* * * * *
+```
+
+The following example sets a Cron Schedule in PHP:
+
+```php
+  $workflow = $this->workflowClient->newWorkflowStub(
+      CronWorkflowInterface::class,
+      WorkflowOptions::new()
+          ->withWorkflowId(CronWorkflowInterface::WORKFLOW_ID)
+          ->withCronSchedule('* * * * *')
+          // Execution timeout limits total time. Cron will stop executing after this timeout.
+          ->withWorkflowExecutionTimeout(CarbonInterval::minutes(10))
+          // Run timeout limits duration of a single workflow invocation.
+          ->withWorkflowRunTimeout(CarbonInterval::minute(1))
+  );
+
+  $output->writeln("Starting <comment>CronWorkflow</comment>... ");
+
+  try {
+      $run = $this->workflowClient->start($workflow, 'Antony');
+      // ...
+  }
+```
+
+Setting `withCronSchedule` turns the Workflow Execution into a Temporal Cron Job.
+For more information, see the [PHP samples](https://github.com/temporalio/samples-php/tree/master/app/src/Cron) for example code or the PHP SDK `WorkflowOptions` [source code](https://github.com/temporalio/sdk-php/blob/master/src/Client/WorkflowOptions.php).
+
+:::tip Schedule Auto-Deletion
+
+Once a Schedule has completed creating all its Workflow Executions, the Temporal Service deletes it since it won’t fire again.
+The Temporal Service doesn't guarantee when this removal will happen.
+
+:::
+
+---
+
+## Side Effects - PHP SDK
+
+## How to use Side Effects in PHP {#side-effects}
+
+Side Effects are used to execute non-deterministic code, such as generating a UUID or a random number, without compromising determinism in the Workflow. This is done by storing the results of the Side Effect into the Workflow [Event History](/workflow-execution/event#event-history).
+
+A Side Effect doesn't re-execute during a Replay. Instead, it returns the recorded result from the Workflow Execution Event History.
+
+Side Effects shouldn't fail. An exception that is thrown from the Side Effect causes failure and retry of the current Workflow Task.
+
+An Activity or a Local Activity can also be used instead of a Side Effect, as its results are also persisted in Workflow Execution History.
+
+:::note
+
+You shouldn't modify the Workflow state inside a Side Effect, because they're not re-executed during Replay. Side Effect functions should only return a value, and that value can be used in Workflow code to alter state.
+
+:::
+
+To use a Side Effect in PHP, use the `Workflow::sideEffect()` function in your Workflow Definition to run non-deterministic code and return a value.
+
+```php
+#[Workflow\WorkflowMethod]
+public function run()
+{
+    $random = yield Workflow::sideEffect(fn() => random_int(0, 100));
+    if ($random < 50) {
+        // ...
+    } else {
+        // ...
+    }
+}
+```
+
+---
+
+## Temporal Client - PHP SDK
+
+This guide introduces Temporal Clients.
+It explains the role and use of Clients and shows you how to configure your PHP Client code to connect to the Temporal Service.
+
+The pages shows how to do the following:
+
+- [Connect to a local development Temporal Service](#connect-to-a-dev-cluster)
+- [Connect to Temporal Cloud](#connect-to-temporal-cloud)
+- [Start a Workflow Execution](#start-workflow-execution)
+- [Advanced connection options](#advanced-connection-options)
+
+## How to connect a Temporal Client to a Temporal Service {#connect-to-a-dev-cluster}
+
+A [Temporal Client](/encyclopedia/temporal-sdks#temporal-client) enables you to communicate with the [Temporal Service](/temporal-service).
+Communication with a Temporal Service includes, but isn't limited to, the following:
+
+- Scheduling Workflow Executions.
+- Starting Workflow Executions.
+- Sending Signals to Workflow Executions.
+- Sending Queries to Workflow Executions.
+- Sending Updates to Workflow Executions.
+- Getting the results of a Workflow Execution.
+- Providing an Activity Task Token.
+
+:::caution
+
+A Temporal Client cannot be initialized and used inside a Workflow.
+However, it is acceptable and common to use a Temporal Client inside an Activity to communicate with a Temporal Service.
+
+:::
+
+When you are running a Temporal Service locally (such as the [Temporal CLI](https://docs.temporal.io/cli/server#start-dev)), the number of connection options you must provide is minimal.
+Many SDKs default to the local host or IP address and port that Temporalite and [Docker Compose](https://github.com/temporalio/docker-compose) serve (`127.0.0.1:7233`).
+
+In the PHP SDK, different client classes are responsible for different functional areas.
+The [`ServiceClient`](https://php.temporal.io/classes/Temporal-Client-GRPC-ServiceClient.html) is responsible for the low-level API and connection to the Temporal Service.
+It is also used in higher-level clients: [`WorkflowClient`](https://php.temporal.io/classes/Temporal-Client-WorkflowClient.html) and [`ScheduleClient`](https://php.temporal.io/classes/Temporal-Client-ScheduleClient.html).
+
+:::note
+
+RoadRunner is not required to work only with the client API; however, the [gRPC extension](https://pecl.php.net/package/grpc) is necessary.
+
+:::
+
+Use `create()` factory methods to create clients.
+
+```php
+use Temporal\Client\GRPC\ServiceClient;
+use Temporal\Client\WorkflowClient;
+
+$serviceClient = ServiceClient::create('localhost:7233');
+$workflowClient = WorkflowClient::create($serviceClient);
+
+// Use $workflowClient to work with Workflows ...
+```
+
+See the [Advanced connection options](#advanced-connection-options) section for more information on configuring the connection.
+
+## How to connect a Temporal Client to a Temporal Cloud {#connect-to-temporal-cloud}
+
+When you connect to [Temporal Cloud](/cloud), you need to provide additional connection and client options that include the following:
+
+- The [Temporal Cloud Namespace Id](/cloud/namespaces#temporal-cloud-namespace-id).
+- The [Namespace's gRPC endpoint](/cloud/namespaces#temporal-cloud-grpc-endpoint).
+  An endpoint listing is available at the [Temporal Cloud Website](https://cloud.temporal.io/namespaces) on each Namespace detail page.
+  The endpoint contains the Namespace Id and port.
+- mTLS CA certificate.
+- mTLS private key.
+
+For more information about managing and generating client certificates for Temporal Cloud, see [How to manage certificates in Temporal Cloud](/cloud/certificates).
+
+For more information about configuring TLS to secure inter- and intra-network communication for a Temporal Service, see [Temporal Customization Samples](https://github.com/temporalio/samples-server).
+
+Use the [`ServiceClient::createSSL()`](https://php.temporal.io/classes/Temporal-Client-GRPC-BaseClient.html#method_createSSL) method to configure a client connection to the Temporal Service.
+The `$clientKey` argument must be combined with the `$clientPem` to authenticate the Client.
+
+```php
+use Temporal\Client\ClientOptions;
+use Temporal\Client\GRPC\ServiceClient;
+use Temporal\Client\WorkflowClient;
+
+$serviceClient = \Temporal\Client\GRPC\ServiceClient::createSSL(
+    address: '<your-custom-namespace>.tmprl.cloud:7233',
+    // crt: 'certs/server-root-ca-cert.pem', # ROOT CA to validate the server cert
+    clientKey: 'certs/client-private-key.pem',
+    clientPem: 'certs/client-cert.pem',
+    // overrideServerName: 'tls-sample',
+);
+
+$workflowClient = WorkflowClient::create(
+    serviceClient: $serviceClient,
+    options: (new ClientOptions())
+        ->withNamespace('<your-custom-namespace>.<id>'),
+);
+```
+
+To [run Worker processes](/develop/php/core-application#run-a-dev-worker) managed by Temporal Cloud, configure RoadRunner in the same way.
+
+```yml
+temporal:
+  # ...
+  tls:
+    # root_ca: 'certs/server-root-ca-cert.pem'
+    key: 'certs/client-private-key.pem'
+    cert: 'certs/client-cert.pem'
+    client_auth_type: require_and_verify_client_cert
+    # server_name: 'tls-sample'
+```
+
+To set up the [API key](/cloud/api-keys) in the Client, use the [`ServiceClient::withAuthKey()`](https://php.temporal.io/classes/Temporal-Client-GRPC-BaseClient.html#method_withAuthKey) method:
+
+```php
+$serviceClient = \Temporal\Client\GRPC\ServiceClient::createSSL(/*...*/)
+    ->withAuthKey('your-api-key');
+```
+
+## How to start a Workflow Execution {#start-workflow-execution}
+
+[Workflow Execution](/workflow-execution) semantics rely on several parameters—that is, to start a Workflow Execution you must supply a Task Queue that will be used for the Tasks (one that a Worker is polling), the Workflow Type, language-specific contextual data, and Workflow Function parameters.
+
+In the examples below, all Workflow Executions are started using a Temporal Client.
+To spawn Workflow Executions from within another Workflow Execution, use either the [Child Workflow](/develop/php/child-workflows) or External Workflow APIs.
+
+See the [Customize Workflow Type](/develop/php/core-application#workflow-type) section to see how to customize the name of the Workflow Type.
+
+A request to spawn a Workflow Execution causes the Temporal Service to create the first Event ([WorkflowExecutionStarted](/references/events#workflowexecutionstarted)) in the Workflow Execution Event History.
+The Temporal Service then creates the first Workflow Task, resulting in the first [WorkflowTaskScheduled](/references/events#workflowtaskscheduled) Event.
+
+Use Workflow stub to start a Workflow Execution from within a Client.
+Workflow stub is a proxy generated by the [`WorkflowClient`](https://php.temporal.io/classes/Temporal-Client-WorkflowClient.html).
+You can use a typed or untyped Workflow stub in the client code.
+
+- Typed Workflow stubs are useful because they are type safe and allow you to invoke your Workflow methods such as `#[WorkflowMethod]`, `#[QueryMethod]`, `#[SignalMethod]`, and `#[UpdateMethod]` directly.
+- An untyped Workflow stub does not use a Workflow interface. It is more flexible because it has methods from the [`WorkflowStubInterface`](https://php.temporal.io/classes/Temporal-Client-WorkflowStubInterface.html), such as `start`, `signal`, `getResults`, `query`, `signal`, `update`, `cancel`, `terminate`, etc.
+  When using untyped Workflow stub, we rely on the Workflow Type, Activity Type, Child Workflow Type, as well as Query and Signal names.
+
+For example, there is a Workflow defined as follows:
+
+```php
+#[WorkflowInterface]
+interface AccountTransferWorkflowInterface
+{
+    #[WorkflowMethod(name: "account.transfer")]
+    public function begin(UuidInterface $transactionId);
+
+    #[UpdateMethod(name: "pay")]
+    public function move(UuidInterface $from, UuidInterface $to, int $amount);
+
+    #[UpdateMethod(name: "finish")]
+    public function commit();
+
+    #[UpdateMethod(name: "cancel")]
+    public function rollback(string $reason);
+}
+```
+
+In case of a **typed** Workflow stub, you can use the `AccountTransferWorkflowInterface` to call the Workflow methods directly:
+
+```php
+$stub = $workflowClient->newWorkflowStub(AccountTransferWorkflowInterface::class);
+
+$workflowClient->start($stub, $transactionId);
+$stub->move($from1, $to1, $amount1);
+$stub->move($from2, $to2, $amount2);
+$stub->commit();
+```
+
+In case of an **untyped** Workflow stub, you need to specify Workflow Type and method names explicitly:
+
+```php
+$stub = $workflowClient->newUntypedWorkflowStub('account.transfer');
+
+$workflowClient->start($stub, $transactionId);
+$stub->update('pay', $from1, $to1, $amount1);
+$stub->update('pay', $from2, $to2, $amount2);
+$stub->update('finish');
+```
+
+A Workflow Execution can be started either synchronously or asynchronously.
+
+**Synchronous start**
+
+A synchronous start initiates a Workflow and then waits for its completion. The started Workflow will not rely on the
+invocation process and will continue executing even if the waiting process crashes or stops.
+
+Be sure to acquire the Workflow interface or class name you want to start.
+For example:
+
+```php
+#[WorkflowInterface]
+interface AccountTransferWorkflowInterface
+{
+    #[WorkflowMethod(name: "MoneyTransfer")]
+    #[ReturnType(UuidInterface::class)]
+    public function transfer( string $fromAccountId, string $toAccountId, string $referenceId, int $amountCents);
+}
+```
+
+To start the Workflow in sync mode:
+
+```php
+$accountTransfer = $workflowClient->newWorkflowStub(
+    AccountTransferWorkflowInterface::class,
+);
+
+$result = $accountTransfer->transfer('fromID', 'toID', 'refID', 1000);
+```
+
+**Asynchronous start**
+
+An asynchronous start initiates a Workflow Execution and immediately returns to the caller without waiting for a result.
+This is the most common way to start Workflows in a live environment.
+
+To start a Workflow asynchronously, pass the Workflow stub instance and start parameters into the [`WorkflowClient::start()`](https://php.temporal.io/classes/Temporal-Client-WorkflowClientInterface.html#method_start) method.
+
+```php
+$accountTransfer = $workflowClient->newWorkflowStub(
+    AccountTransferWorkflowInterface::class,
+);
+
+$run = $this->workflowClient->start($accountTransfer, 'fromID', 'toID', 'refID', 1000);
+```
+
+After the Workflow is started, you can receive details about the Workflow Execution or result via the [`WorkflowRun`](https://php.temporal.io/classes/Temporal-Workflow-WorkflowRunInterface.html) object methods:
+
+```php
+$run = $workflowClient->start($accountTransfer, 'fromID', 'toID', 'refID', 1000);
+
+// Get the Workflow ID
+var_dump($run->getExecution()->getID());
+
+// Describe the Workflow Execution
+var_dump($run->describe());
+
+// Wait for the Workflow to complete and get the result with 10-second timeout
+var_dump($run->getResult(timeout: 10));
+```
+
+**Recurring start**
+
+You can start a Workflow Execution on a regular schedule with [the CronSchedule option](/develop/php/schedules#temporal-cron-jobs).
+
+### How to set a Workflow's Task Queue {#set-task-queue}
+
+In most SDKs, the only Workflow Option that must be set is the name of the [Task Queue](/task-queue).
+When developing in PHP, the Task Queue name defaults to `"default"`.
+While setting a meaningful Task Queue name is recommended for better observability, Workflows can be run without setting this option.
+
+:::note
+
+PHP's default is different from most SDKs, which do require an explicit Task Queue name.
+
+:::
+
+For your code to execute, a Worker Process must be running ([how to run Worker Processes](/develop/php/core-application#run-a-dev-worker)).
+This process needs a Worker Entity that is polling the same Task Queue name.
+
+Set the Workflow Task Queue with the Workflow stub in the Client code using [`WorkflowOptions::withTaskQueue()`](https://php.temporal.io/classes/Temporal-Client-WorkflowOptions.html#method_withTaskQueue).
+
+```php
+$stub = $workflowClient->newWorkflowStub(
+    YourWorkflowInterface::class,
+    WorkflowOptions::new()
+        ->withTaskQueue("Workflow-Task-Queue-1"),
+);
+```
+
+### How to set a Workflow Id {#workflow-id}
+
+Although it is not required, we recommend providing your own [Workflow Id](/workflow-execution/workflowid-runid#workflow-id)that maps to a business process or business entity identifier, such as an order identifier or customer identifier.
+
+Set the Workflow Id with the Workflow stub in the Client code using [`WorkflowOptions::withTaskQueue()`](https://php.temporal.io/classes/Temporal-Client-WorkflowOptions.html#method_withWorkflowId).
+
+```php
+$stub = $workflowClient->newWorkflowStub(
+    YourWorkflowInterface::class,
+    WorkflowOptions::new()
+        ->withWorkflowId("Workflow-Id"),
+);
+```
+
+### How to get the results of a Workflow Execution {#get-workflow-results}
+
+If the call to start a Workflow Execution is successful, you will gain access to the Workflow Execution's Run Id.
+
+The Workflow Id, Run Id, and Namespace may be used to uniquely identify a Workflow Execution in the system and get its result.
+
+It's possible to both block progress on the result (synchronous execution) or get the result at some other point in time (asynchronous execution).
+
+In the Temporal Platform, it's also acceptable to use Queries as the preferred method for accessing the state and results of Workflow Executions.
+
+If you need to wait for the completion of a Workflow after an asynchronous start, make a blocking call to
+the `WorkflowRun::getResult()` method.
+
+```php
+$stub = $workflowClient->newWorkflowStub(YourWorkflowInterface::class);
+$run = $workflowClient->start($stub, 'fromID', 'toID', 'refID', 1000);
+
+var_dump($run->getResult());
+```
+
+In case of untyped Workflow stub, you can use the [`WorkflowStub::getResult()`](https://php.temporal.io/classes/Temporal-Workflow-WorkflowRunInterface.html#method_getResult) method:
+
+```php
+$stub = $workflowClient->newUntypedWorkflowStub('account.transfer');
+$workflowClient->start($stub, 'fromID', 'toID', 'refID', 1000);
+
+var_dump($stub->getResult(timeout: 5.5));
+```
+
+Note that you can specify a timeout for the `getResult()` method in seconds.
+If the Workflow does not complete within the specified time, a `TimeoutException` will be thrown.
+See how to limit all RPC calls in the [RPC timeout](#configure-rpc-timeout) section.
+
+## Advanced connection options {#advanced-connection-options}
+
+In PHP, it is common practice to work with resources in blocking mode.
+Long blocks can quickly exhaust the pool of available workers and lead to application failure.
+
+This section introduces features and configuration examples of the PHP SDK when working with the Temporal Client API.
+
+### Connection
+
+gRPC connections in the PHP SDK are lazy by default, meaning they are not established until the first call.
+To force establishing the connection to the Temporal Service, you can call the [`ConnectionInterface::connect()`](https://php.temporal.io/classes/Temporal-Client-GRPC-Connection-ConnectionInterface.html#method_connect) or [`ServiceClient::getServerCapabilities()`](https://php.temporal.io/classes/Temporal-Client-GRPC-ServiceClientInterface.html#method_getServerCapabilities) method.
+
+```php
+// ...
+$serviceClient->getConnection()->connect(timeout: 10);
+
+// or
+$serviceClient->getServerCapabilities();
+```
+
+If, for some reason, the established connection is broken, the SDK will automatically attempt to restore it, taking into account the configured retry policy.
+
+### Retry policy {#configure-rpc-retry-policy}
+
+Whenever the client fails to connect to the server, an error with a status code is generated.
+If the status code is `UNKNOWN`, `UNAVAILABLE`, or `RESOURCE_EXHAUSTED`, the client will make another connection attempt.
+By default, the number of attempts is unlimited, and the interval between them will range from 0.5 to 100 seconds with a backoff coefficient of 2.
+This means that the client will likely be blocked until it establishes a connection to the server through infinite attempts.
+
+If you want to change the default behavior, use the `withRetryPolicy()` method when creating a client service:
+
+```php
+use Temporal\Client\Common\RpcRetryOptions;
+use Temporal\Client\GRPC\ServiceClient;
+use Temporal\Client\WorkflowClient;
+
+$serviceClient = ServiceClient::create('localhost:7233');
+$workflowClient = WorkflowClient::create($serviceClient)
+    ->withRetryOptions(
+        RpcRetryOptions::new()
+            ->withMaximumAttempts(10)
+            ->withInitialInterval('1 second')   // The first retry will be in 1 second
+            ->withBackoffCoefficient(2.5)       // Each next retry time will be multiplied by 2.5
+            ->withMaximumInterval('20 seconds') // The maximum interval between attempts
+            ->withMaximumJitterCoefficient(0.2) // Actual retry time can be +/- 20% of the calculated time
+    );
+```
+
+### RPC timeout {#configure-rpc-timeout}
+
+When the client calls the service's RPC, there is no default time limit for waiting for a response. This can result in the code call `$result = $workflowHandle->getResult();` blocking the PHP worker until the Workflow completes. In some cases, this is not the desired behavior, and there may be a need to set a reasonable timeout for waiting for the RPC to complete.
+
+Use the `withTimeout()` method to build a client with a timeout for all RPC calls.
+
+```php
+use Temporal\Client\GRPC\ServiceClient;
+use Temporal\Client\WorkflowClient;
+
+$serviceClient = ServiceClient::create('localhost:7233');
+$workflowClient = WorkflowClient::create($serviceClient)
+    ->withTimeout(5.75);
+
+// Create a Workflow stub
+$stub = $workflowClient->newWorkflowStub(AccountTransferWorkflowInterface::class);
+
+// If the Workflow does not complete within 5.75 seconds, a TimeoutException will be thrown
+$result = $stub->transfer('fromID', 'toID', 'refID', 1000);
+```
+
+:::note
+
+The `withTimeout()` method is immutable.
+If you need to change the timeout for individual operations, create a new client from the existing one with a specific timeout: `$newClient = $workflowClient->withTimeout(0);` (`0` means no timeout).
+
+:::
+
+---
+
+## Testing - PHP SDK
+
+The Testing section of the Temporal Application development guide describes the frameworks that facilitate Workflow and integration testing.
+
+In the context of Temporal, you can create these types of automated tests:
+
+- **End-to-end:** Running a Temporal Server and Worker with all its Workflows and Activities; starting and interacting with Workflows from a Client.
+- **Integration:** Anything between end-to-end and unit testing.
+  - Running Activities with mocked Context and other SDK imports (and usually network requests).
+  - Running Workers with mock Activities, and using a Client to start Workflows.
+  - Running Workflows with mocked SDK imports.
+- **Unit:** Running a piece of Workflow or Activity code (a function or method) and mocking any code it calls.
+
+We generally recommend writing the majority of your tests as integration tests.
+
+Because the test server supports skipping time, use the test server for both end-to-end and integration tests with Workers.
+
+## Testing Activities {#test-activities}
+
+An Activity can be tested with a mock Activity environment, which provides a way to mock the Activity context, listen to Heartbeats, and cancel the Activity.
+This behavior allows you to test the Activity in isolation by calling it directly, without needing to create a Worker to run the Activity.
+
+## Testing Workflows {#test-workflows}
+
+### How to mock Activities {#mock-activities}
+
+Mock the Activity invocation when unit testing your Workflows.
+
+When integration testing Workflows with a Worker, you can mock Activities by providing mock Activity implementations to the Worker.
+
+**RoadRunner config**
+
+To mock an Activity in PHP, use [RoadRunner Key-Value storage](https://github.com/spiral/roadrunner-kv) and add the following lines to your `tests/.rr.test.yaml` file.
+
+```yaml
+# tests/.rr.test.yaml
+kv:
+  test:
+    driver: memory
+    config:
+      interval: 10
+```
+
+If you want to be able to mock Activities, use `WorkerFactory` from the `Temporal\Testing` Namespace
+in your PHP Worker:
+
+```php
+// worker.test.php
+use Temporal\Testing\WorkerFactory;
+
+$factory = WorkerFactory::create();
+$worker = $factory->newWorker();
+
+$worker->registerWorkflowTypes(MyWorkflow::class);
+$worker->registerActivity(MyActivity::class);
+$factory->run();
+```
+
+Then, in your tests to mock an Activity, use the`ActivityMocker` class.
+
+Assume we have the following Activity:
+
+```php
+#[ActivityInterface(prefix: "SimpleActivity.")]
+interface SimpleActivityInterface
+{
+    #[ActivityMethod('doSomething')]
+    public function doSomething(string $input): string;
+```
+
+To mock it in the test, you can do this:
+
+```php
+final class SimpleWorkflowTestCase extends TestCase
+{
+    private WorkflowClient $workflowClient;
+    private ActivityMocker $activityMocks;
+
+    protected function setUp(): void
+    {
+        $this->workflowClient = new WorkflowClient(ServiceClient::create('localhost:7233'));
+        $this->activityMocks = new ActivityMocker();
+
+        parent::setUp();
+    }
+
+    protected function tearDown(): void
+    {
+        $this->activityMocks->clear();
+        parent::tearDown();
+    }
+
+    public function testWorkflowReturnsUpperCasedInput(): void
+    {
+        $this->activityMocks->expectCompletion('SimpleActivity.doSomething', 'world');
+        $workflow = $this->workflowClient->newWorkflowStub(SimpleWorkflow::class);
+        $run = $this->workflowClient->start($workflow, 'hello');
+        $this->assertSame('world', $run->getResult('string'));
+    }
+}
+```
+
+In the preceding test case, we do the following:
+
+1. Instantiate `ActivityMocker` in the `setUp()` method of the test.
+2. Clear the cache after each test in `tearDown()`.
+3. Mock an Activity call to return a string `world`.
+
+To mock a failure, use the `expectFailure()` method:
+
+```php
+$this->activityMocks->expectFailure('SimpleActivity.echo', new \LogicException('something went wrong'));
+```
+
+### How to skip time {#skip-time}
+
+Some long-running Workflows can persist for months or even years.
+Implementing the test framework allows your Workflow code to skip time and complete your tests in seconds rather than the Workflow's specified amount.
+
+For example, if you have a Workflow sleep for a day, or have an Activity failure with a long retry interval, you don't need to wait the entire length of the sleep period to test whether the sleep function works.
+Instead, test the logic that happens after the sleep by skipping forward in time and complete your tests in a timely manner.
+
+The test framework included in most SDKs is an in-memory implementation of Temporal Server that supports skipping time.
+Time is a global property of an instance of `TestWorkflowEnvironment`: skipping time (either automatically or manually) applies to all currently running tests.
+If you need different time behaviors for different tests, run your tests in a series or with separate instances of the test server.
+For example, you could run all tests with automatic time skipping in parallel, and then all tests with manual time skipping in series, and then all tests without time skipping in parallel.
+
+#### Set up time skipping {#setting-up}
+
+Learn to set up the time-skipping test framework in the SDK of your choice.
+
+1. In the `tests` folder, create `bootstrap.php` with the following contents:
+
+```php
+declare(strict_types=1);
+
+require __DIR__ . '/../vendor/autoload.php';
+
+use Temporal\Testing\Environment;
+
+$environment = Environment::create();
+$environment->start();
+register_shutdown_function(fn () => $environment->stop());
+```
+
+If you don't want to run the test server with all of your tests, you can add a condition to start a test only if the `RUN_TEMPORAL_TEST_SERVER` environment variable is present:
+
+```php
+if (getenv('RUN_TEMPORAL_TEST_SERVER') !== false) {
+    $environment = Environment::create();
+    $environment->start('./rr serve -c .rr.silent.yaml --workflow-id tests');
+    register_shutdown_function(fn() => $environment->stop());
+}
+```
+
+2. Add `bootstrap.php` and the `TEMPORAL_ADDRESS` environment variable to `phpunit.xml`:
+
+```xml
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/9.3/phpunit.xsd"
+         bootstrap="tests/bootstrap.php"
+>
+    <php>
+        <env name="TEMPORAL_ADDRESS" value="127.0.0.1:7233" />
+    </php>
+</phpunit>
+```
+
+3. Add the test server executable to `.gitignore`:
+
+```gitignore
+temporal-test-server
+```
+
+## How to Replay a Workflow Execution {#replay}
+
+Replay recreates the exact state of a Workflow Execution.
+You can replay a Workflow from the beginning of its Event History.
+
+Replay succeeds only if the [Workflow Definition](/workflow-definition) is compatible with the provided history from a deterministic point of view.
+
+When you test changes to your Workflow Definitions, we recommend doing the following as part of your CI checks:
+
+1. Determine which Workflow Types or Task Queues (or both) will be targeted by the Worker code under test.
+2. Download the Event Histories of a representative set of recent open and closed Workflows from each Task Queue, either programmatically using the SDK client or via the Temporal CLI.
+3. Run the Event Histories through replay.
+4. Fail CI if any error is encountered during replay.
+
+The following are examples of fetching and replaying Event Histories:
+
+To replay Workflow Executions, use the `\Temporal\Testing\Replay\WorkflowReplayer` class.
+
+In the following example, Event Histories are fetching from the Temporal, and then replayed.
+If the Workflow is non-deterministic, a `NonDeterministicWorkflowException` will be thrown.
+Note that this requires [Advanced Visibility](/visibility#advanced-visibility) to be enabled.
+
+```php
+/**
+ * We assume you already have a WorkflowClient and WorkflowReplayer in scope.
+ * @var \Temporal\Client\WorkflowClientInterface $workflowClient
+ * @var \Temporal\Testing\Replay\WorkflowReplayer $replayer
+ */
+
+// Find all workflow executions of type "MyWorkflow" and task queue "MyTaskQueue".
+$executions = $workflowClient->listWorkflowExecutions(
+    "WorkflowType='MyWorkflow' AND TaskQueue='MyTaskQueue'"
+);
+
+// Replay each workflow execution.
+foreach ($executions as $executionInfo) {
+    try {
+        $replayer->replayFromServer(
+            workflowType: $executionInfo->type->name,
+            execution: $executionInfo->execution,
+        );
+    } catch (\Temporal\Testing\Replay\Exception\ReplayerException $e) {
+        // Handle a replay error.
+    }
+}
+```
+
+In the next example, an Event History is loaded from a JSON file, and the maximum number of replayed Events is limited to 42.
+
+```php
+$replayer->replayFromJSON(
+    workflowType: 'MyWorkflow',
+    path: 'history.json',
+    lastEventId: 42,  // optional
+);
+```
+
+You can download a Workflow History using PHP, and then replay it from a memorized History object:
+
+```php
+$history = $this->workflowClient->getWorkflowHistory(
+    execution: $run->getExecution(),
+)->getHistory();
+
+(new WorkflowReplayer())->replayHistory($history);
+```
+
+---
+
+## Durable Timers - PHP SDK
+
+## What is a Timer? {#timers}
+
+A Workflow can set a durable timer for a fixed time period.
+In some SDKs, the function is called `sleep()`, and in others, it's called `timer()`.
+
+A Workflow can sleep for months.
+Timers are persisted, so even if your Worker or Temporal Service is down when the time period completes, as soon as your Worker and Temporal Service are back up, the `sleep()` call will resolve and your code will continue executing.
+
+Sleeping is a resource-light operation: it does not tie up the process, and you can run millions of Timers off a single Worker.
+
+To set a Timer in PHP, use `Workflow::timer()` and pass the number of seconds you want to wait before continuing.
+
+The following example yields a sleep method for 5 minutes.
+
+```php
+yield Workflow::timer(300); // sleep for 5 minutes
+```
+
+You cannot set a Timer invocation inside the `await` or `awaitWithTimeout` methods.
+
+---
+
+## Versioning - PHP SDK feature guide
+
+Since Workflow Executions in Temporal can run for long periods — sometimes months or even years — it's common to need to make changes to a Workflow Definition, even while a particular Workflow Execution is in progress.
+
+The Temporal Platform requires that Workflow code is [deterministic](/workflow-definition#deterministic-constraints).
+If you make a change to your Workflow code that would cause non-deterministic behavior on Replay, you'll need to use one of our Versioning methods to gracefully update your running Workflows.
+With Versioning, you can modify your Workflow Definition so that new executions use the updated code, while existing ones continue running the original version.
+There are two primary Versioning methods that you can use:
+
+- [Versioning with Patching](#php-sdk-patching-api). This method works by adding branches to your code tied to specific revisions. It applies a code change to new Workflow Executions while avoiding disruptive changes to in-progress ones.
+- [Worker Versioning](/production-deployment/worker-deployments/worker-versioning). The Worker Versioning feature allows you to tag your Workers and programmatically roll them out in versioned deployments, so that old Workers can run old code paths and new Workers can run new code paths.
+
+## Versioning with Patching {#php-sdk-patching-api}
+
+To understand why Patching is useful, it's helpful to first demonstrate cutting over an entire Workflow.
+
+### Workflow cutovers
+
+Since incompatible changes only affect open Workflow Executions of the same type, you can avoid determinism errors by creating a whole new Workflow when making changes.
+To do this, you can copy the Workflow Definition function, giving it a different name, and register both names with your Workers.
+
+For example, you would duplicate `MyWorkflow` as `MyWorkflowV2`:
+
+```php
+#[WorkflowInterface]
+class MyWorkflow
+{}
+
+#[WorkflowInterface]
+class MyWorkflowV2
+{}
+```
+
+You would then need to update the Worker configuration, and any other identifier strings, to register both Workflow Types.
+The downside of this method is that it requires you to duplicate code and to update any commands used to start the Workflow.
+This can become impractical over time.
+This method also does not provide a way to version any still-running Workflows -- it is essentially just a cutover, unlike Patching, which we will now demonstrate.
+
+### Patching with GetVersion
+
+A Patch defines a logical branch in a Workflow for a specific change, similar to a feature flag.
+It applies a code change to new Workflow Executions while avoiding disruptive changes to in-progress ones.
+When you want to make substantive code changes that may affect existing Workflow Executions, create a patch. Note that there's no need to patch [Pinned Workflows](/worker-versioning).
+
+Suppose you have an initial Workflow that runs `prePatchActivity`:
+
+```php
+#[WorkflowInterface]
+class MyWorkflow
+{
+    private $activity;
+
+    public function __construct()
+    {
+        $this->activity = Workflow::newActivityStub(
+            YourActivityInterface::class,
+            ActivityOptions::new()->withScheduleToStartTimeout(60)
+        );
+    }
+
+    #[WorkflowMethod]
+    public function runAsync()
+    {
+        $result = yield $this->activity->prePatchActivity();
+    }
+}
+```
+
+Suppose you replaced `prePatchActivity` with `postPatchActivity` and deployed the updated code.
+
+If an existing Workflow Execution was started by the original version of the Workflow code, where `prePatchActivity` was run, and then resumed running on a new Worker where it was replaced with `postPatchActivity`, the server side Event History would be out of sync.
+This would cause the Workflow to fail with a nondeterminism error.
+
+To resolve this, you can use [Workflow::getVersion](https://php.temporal.io/classes/Temporal-Workflow.html#method_getVersion) to patch to your Workflow:
+
+```php
+#[WorkflowInterface]
+class MyWorkflow
+{
+    // ...
+
+    #[WorkflowMethod]
+    public function runAsync()
+    {
+        $version = yield Workflow::getVersion('Step 1', Workflow::DEFAULT_VERSION, 1);
+
+        $result = $version === Workflow::DEFAULT_VERSION
+            ? yield $this->activity->prePatchActivity()
+            : yield $this->activity->postPatchActivity();
+    }
+}
+```
+
+When `getVersion()` is run for the new Workflow Execution, it records a marker in the Event History so that all future calls to `getVersion()` for this change Id — `Step 1` in the example — on this Workflow Execution will always return the given version number, which is `1` in the example.
+
+If you make an additional change, such as adding `anotherPatchActivity()`, you need to
+add some additional code:
+
+```php
+#[WorkflowInterface]
+class MyWorkflow
+{
+    // ...
+
+    #[WorkflowMethod]
+    public function runAsync()
+    {
+        $version = yield Workflow::getVersion('Step 1', Workflow::DEFAULT_VERSION, maxSupported: 2);
+
+        $result = match($version) {
+            Workflow::DEFAULT_VERSION => yield $this->activity->prePatchActivity()
+            1 => yield $this->activity->postPatchActivity();
+            2 => yield $this->activity->anotherPatchActivity();
+        };
+    }
+}
+```
+
+Note that we changed `maxSupported` from 1 to 2.
+A Workflow that has already passed this `getVersion()` call before it was introduced returns `DEFAULT_VERSION`.
+A Workflow that was run with `maxSupported` set to 1 returns 1.
+New Workflows return 2.
+
+After all the Workflow Executions prior to version 1 have left retention, you can remove the code for that version:
+
+```php
+    #[WorkflowMethod]
+    public function runAsync()
+    {
+        $version = yield Workflow::getVersion('Step 1', minSupported: 1, maxSupported: 2);
+
+        $result = match($version) {
+            1 => yield $this->activity->postPatchActivity();
+            2 => yield $this->activity->anotherPatchActivity();
+        };
+    }
+```
+
+You'll note that `minSupported` has changed from `DEFAULT_VERSION` to `1`.
+If an older version of the Workflow Execution history is replayed on this code, it fails because the minimum expected version is 1.
+After all the Workflow Executions for version 1 have left retention, you can remove version 1 so that your code looks like the following:
+
+```php
+    #[WorkflowMethod]
+    public function runAsync()
+    {
+        $version = yield Workflow::getVersion('Step 1', minSupported: 2, maxSupported: 2);
+
+        $result = yield $this->activity->anotherPatchActivity();
+    }
+```
+
+Patching allows you to make changes to currently running Workflows.
+It is a powerful method for introducing compatible changes without introducing non-determinism errors.
+
+## Worker Versioning
+
+Temporal's [Worker Versioning](/production-deployment/worker-deployments/worker-versioning) feature allows you to tag your Workers and programmatically roll them out in Deployment Versions, so that old Workers can run old code paths and new Workers can run new code paths. This way, you can pin your Workflows to specific revisions, avoiding the need for patching.
+
+## Runtime checking {#runtime-checking}
+
+The Temporal PHP SDK performs a runtime check to help prevent obvious incompatible changes.
+Adding, removing, or reordering any of these methods without Versioning triggers the runtime check and results in a nondeterminism error:
+
+- `workflow.ExecuteActivity()`
+- `workflow.ExecuteChildWorkflow()`
+- `workflow.NewTimer()`
+- `workflow.RequestCancelWorkflow()`
+- `workflow.SideEffect()`
+- `workflow.SignalExternalWorkflow()`
+- `workflow.Sleep()`
+
+The runtime check does not perform a thorough check.
+For example, it does not check on the Activity's input arguments or the Timer duration.
+Each Temporal SDK implements these sanity checks differently, and they are not a complete check for non-deterministic changes.
+Instead, you should incorporate [Replay Testing](/develop/php/testing-suite#replay) when making revisions.
+
+---
+
+## About Temporal SDKs
+
+Temporal SDKs (software development kits) are an open source collection of tools, libraries, and APIs that enable Temporal Application development.
+
+They offer a [Temporal Client](#temporal-client) to interact with the [Temporal Service](/temporal-service), APIs to develop your [Temporal Application](#temporal-application), and APIs to run horizontally scalable [Workers](/workers#worker).
+
+SDKs are more than just a development tool, however.
+The SDK APIs enable developers to write code in a particular pattern that mirrors real world processes.
+The SDK's internal implementation, working in collaboration with the Temporal Service, steps through that code, guaranteeing execution progression during application runtime.
+
+## Temporal Applications {#temporal-application}
+
+A Temporal Application is the code you write, comprised of [Workflow Definitions](/workflow-definition), [Activity Definitions](/workflow-definition), code used to configure [Temporal Clients](#temporal-client), and code used to configure and start [Workers](/workers#worker).
+Developers create Temporal Applications using an [official Temporal SDK](#official-sdks).
+
+Consider that the Workflow Definition code can be executed repeatedly.
+The Temporal Platform can concurrently support millions to billions of Workflow Executions, each of which representing an invoked Workflow Definition.
+
+Additionally, a Temporal Workflow Execution is both resumable and recoverable, and it can react to external events.
+
+- Resumable: The ability of a process to resume execution after suspending on an _awaitable_.
+- Recoverable: The ability of a process to resume execution after suspending due to a _failure_.
+- Reactive: The ability of a process to respond to external events.
+
+Hence, a Temporal Application can run for seconds or years in the presence of arbitrary load and failures.
+
+## Official SDKs {#official-sdks}
+
+**What are the officially supported SDKs?**
+
+Each Temporal SDK targets a specific programming language.
+
+- [Go SDK feature guides](/develop/go)
+- [Java SDK feature guides](/develop/java)
+- [PHP SDK feature guides](/develop/php)
+- [Python SDK feature guides](/develop/python/)
+- [TypeScript SDK feature guides](/develop/typescript/)
+- [.NET SDK feature guides](/develop/dotnet)
+- [Ruby SDK README](https://github.com/temporalio/sdk-ruby)
+
+Despite supporting multiple languages, and supporting many features, Temporal SDKs aim to make developers feel at home in their language.
+
+### Third-party SDKs
+
+The following third-party SDKs exist but are not supported in Temporal's documentation:
+
+- [Clojure](https://github.com/manetu/temporal-clojure-sdk) - from [@Manetu](https://github.com/manetu)
+- [Scala](https://github.com/vitaliihonta/zio-temporal) from [@vitaliihonta](https://github.com/vitaliihonta)
+- [Ruby](https://github.com/coinbase/temporal-ruby) from [@coinbase](https://github.com/coinbase)
+
+## Why use a Temporal SDK? {#why-use-an-sdk}
+
+Temporal SDKs empowers developers to concentrate on creating dependable and scalable business logic, alleviating the need to build home grown supervisor systems to ensure reliability and fault-tolerance. This is possible because the Temporal SDK provides a unified library that abstracts the intricacies of how Temporal handles distributed systems.
+
+### Development pattern
+
+By abstracting complexities and streamlining boilerplate code, developers can craft straightforward code that directly aligns with their business logic, enhancing code readability and bolstering developer productivity.
+
+Consider a bank loan application.
+Developers can design the business logic of a bank loan using the Temporal SDK.
+The Workflow defines the overarching business logic, encompassing tasks such as validating applicant information, credit checks, loan approval, and applicant notifications, as Activities.
+
+:::caution Do not copy and use code
+
+The following is pseudocode. For tested samples see your language SDK's developer's guide.
+
+:::
+
+```
+func LoanApplicationWorkflow {
+
+    sdk.ExecuteActivity(CreditCheck)
+
+    sdk.ExecuteActivity(AutomatedApproval)
+
+    sdk.ExecuteActivity(NotifyApplicant)
+
+    // ...
+}
+```
+
+For instance, Temporal SDKs have built-in support for handling failures, timeouts, and retries.
+In the event of an Activity failure, the SDK automatically initiates retries according to configurable policies established by the developer within the SDK. This streamlined process simplifies the integration of fault-tolerance mechanisms into applications.
+
+:::caution Do not copy and use code
+
+The following is pseudocode. For tested samples see your language SDK's developer's guide.
+
+:::
+
+```
+func LoanApplicationWorkflow {
+
+    options = {
+        MaxAttempts: 3,
+        StartToCloseTimeout: 30min,
+        HeartbeatTimeout: 10min,
+    }
+
+    sdk.ExecuteActivity(CreditCheck, options)
+
+    sdk.ExecuteActivity(AutomatedApproval)
+
+    sdk.ExecuteActivity(NotifyApplicant)
+
+    // ...
+}
+```
+
+### Replays
+
+Another quality of the SDKs lies in their ability to replay Workflow Executions, a complex operation that contributes significantly to the Platform's promised reliability.
+
+<CaptionedImage
+    src="/diagrams/replay-basic.svg"
+    title="The SDKs Replay code execution to continue from the last step" />
+
+We will delve into this idea more later, but for now, it signifies that the SDKs can automatically continue a process from the point of interruption, should a failure occur.
+This capability stems from the SDK's ability to persist each step the program takes.
+
+{/* - [Developing for Durable Execution using the Go SDK](/develop/go/durable-execution) */}
+
+## Temporal SDKs major components {#major-components}
+
+**What are the major components of Temporal SDKs?**
+
+Temporal SDKs offer developers the following:
+
+- A Temporal Client to communicate with a Temporal Service
+- APIs to develop application code (Workflows & Activities)
+- APIs to configure and run Workers
+
+<CaptionedImage
+    src="/diagrams/temporal-sdk-components.svg"
+    title="Temporal SDK components create a runtime across your environment and a Temporal Service" />
+
+Let's break down each one.
+
+### Temporal Client
+
+A Temporal Client acts as the bridge for communication between your applications and the Temporal Service.
+The Client performs key functions that facilitate the execution of, management of, and communication with Workflows.
+
+The most common operations that a Temporal Client enables you to perform are the following:
+
+- Get the result of Workflow Execution.
+- List Workflow Executions.
+- Query a Workflow Execution.
+- Signal a Workflow Execution.
+- Start a Workflow Execution.
+
+The following code is an example using the Go SDK.
+It showcases how to initialize a Temporal Client, create a connection to a local Temporal Service, and start a Workflow Execution:
+
+:::caution Do not copy and use code
+
+The following code is for example purposes only.
+For tested code samples and best practices, use your preferred language SDK's developer's guide.
+
+- [Go SDK Temporal Client feature guide](/develop/go/temporal-client)
+- [Java SDK Temporal Client feature guide](/develop/java/temporal-client)
+- [PHP SDK Temporal Client feature guide](/develop/php/temporal-client#connect-to-a-dev-cluster)
+- [Python SDK Temporal Client feature guide](/develop/python/temporal-client#connect-to-a-dev-cluster)
+- [TypeScript SDK Temporal Client feature guide](/develop/typescript/core-application#connect-to-a-dev-cluster)
+
+:::
+
+```go
+package main
+
+	"context"
+
+	"go.temporal.io/sdk/client"
+)
+
+func main() {
+	// Temporal Client setup code
+	c, err := client.NewClient(client.Options{})
+	if err != nil {
+		log.Fatalln("Unable to create client", err)
+	}
+	defer c.Close()
+	// Prepare Workflow option and parameters
+	workflowOptions := client.StartWorkflowOptions{
+		ID:        "loan-application-1",
+		TaskQueue: "loan-application-task-queue",
+	}
+	applicantDetails := ApplicantDetails{
+		// ...
+	}
+	// Start the Workflow
+	workflowRun, err := c.ExecuteWorkflow(context.Background(), workflowOptions, "loan-application-workflow", applicantDetails)
+	if err != nil {
+		// ...
+	}
+	// ...
+}
+```
+
+Developers can then use the Client as the main entry point for interacting with the application through Temporal.
+Using that Client, developers may for example start or Signal Workflows, Query a Workflow's state, etc.
+We can see in the example above how the developer has used `ExecuteWorkflow` API to start a Workflow.
+
+### APIs to Develop Workflows
+
+Workflows are defined as code: either a function or an object method, depending on the language.
+
+For example, the following is a valid Temporal Workflow in Go:
+
+:::caution Do not copy and use code
+
+The following code is for example purposes only.
+For tested code samples and best practices, use your preferred language SDK's developer's guide.
+
+:::
+
+```go
+func LoanApplication(ctx context.Context) (error) {
+    // ...
+	return nil
+}
+```
+
+The Workflow code uses Temporal SDK APIs to orchestrate the steps of the application.
+
+:::caution Do not copy and use code
+
+The following code is for example purposes only.
+For tested code samples and best practices, use your preferred language SDK's developer's guide.
+
+:::
+
+```go
+func LoanApplication(ctx workflow.Context, input *LoanApplicationWorkflowInput) (*LoanApplicationWorkflowResult, error) {
+	// ...
+	var result activities.CreditCheckResult
+	f := workflow.ExecuteActivity(ctx, a.CreditCheck, CreditCheckInput(*input))
+	err := f.Get(ctx, &result)
+	// ...
+	// Return the results
+	return &loanApplicationResults, nil
+}
+```
+
+A Workflow executes Activities (other functions that interact with external systems), handles and sends messages (Queries, Signals, Updates), and interacts with other Workflows.
+
+This Workflow code, while executing, can be paused, resumed, and migrated across physical machines without losing state.
+
+When a Workflow calls the API to execute an Activity, the Worker sends a [Command](https://docs.temporal.io/references/commands) back to the Temporal Service. The Temporal Service creates Activity Tasks in response which the same or a different Worker can then pick up and begin executing. In this way, the Worker and Temporal Service work together to incrementally execute Workflow code in a reliable way.
+We discuss this more in detail in [The SDK and Temporal Service relationship](/encyclopedia/temporal-sdks#sdk-and-cluster-relationship) section.
+
+The SDK APIs also enable developers to write code that more genuinely maps to their process. This is because without a specialized SDK, developers might have to write a lot of boilerplate code. This can lead to code that's hard to maintain, difficult to understand, or that doesn't directly correspond to the underlying business process.
+
+For example, the bank loan application Workflow might actually look like this:
+
+:::caution Do not copy and use code
+
+The following code is for example purposes only.
+For tested code samples and best practices, use your preferred language SDK's developer's guide.
+
+:::
+
+```go
+// LoanApplicationWorkflow is the workflow definition.
+func LoanApplicationWorkflow(ctx workflow.Context, applicantName string, loanAmount int) (string, error) {
+	// Step 1: Notify the applicant that the application process has started
+	err := workflow.ExecuteActivity(ctx, NotifyApplicantActivity, applicantName, "Application process started").Get(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+
+	// Step 2: Perform a credit check
+	var creditCheckResult string
+	err = workflow.ExecuteActivity(ctx, LoanCreditCheckActivity, loanAmount).Get(ctx, &creditCheckResult)
+	if err != nil {
+		return "", err
+	}
+
+	// Step 3: Perform an automatic approval check
+	var approvalCheckResult string
+	err = workflow.ExecuteActivity(ctx, AutomaticApprovalCheckActivity, creditCheckResult).Get(ctx, &approvalCheckResult)
+	if err != nil {
+		return "", err
+	}
+
+	// Step 4: Notify the applicant of the decision
+	var notificationResult string
+	err = workflow.ExecuteActivity(ctx, NotifyApplicantActivity, applicantName, approvalCheckResult).Get(ctx, &notificationResult)
+	if err != nil {
+		return "", err
+	}
+
+	return notificationResult, nil
+}
+```
+
+The level of abstraction that APIs offer enables the developer to focus on business logic without having to worry about the intricacies of distributed computing such as retries, or having to explicitly maintain a state machine and the intermediate state for each step of the process.
+
+Additionally, the state of the Workflow is automatically persisted so if a failure does occur, it resumes right where it left off.
+
+### APIs to create and manage Worker Processes
+
+Workers are responsible for executing Workflow and Activity code (application code). The SDK provides APIs for configuring and starting Workers, enabling developers to control how the code is executed.
+Workers are horizontally scalable, often run with systems like Kubernetes, and configured according to the application's needs.
+
+Here is an example of how you could initialize a Worker using the Go SDK.
+
+:::caution Do not copy and use code
+
+The following code is for example purposes only.
+For tested code samples and best practices, use your preferred language SDK's developer's guide.
+
+:::
+
+```go
+func main() {
+    // Create the client object just once per process
+    c, err := client.NewClient(client.Options{})
+    if err != nil {
+        log.Fatalln("Unable to create Temporal client", err)
+    }
+    defer c.Close()
+
+    // Create the Worker instance
+    w := worker.New(c, "loan-application-task-queue", worker.Options{})
+
+    // Register the workflow and activity with the worker
+    w.RegisterWorkflow(LoanApplicationWorkflow)
+    w.RegisterActivity(LoanCreditCheck)
+
+    // Start listening to the Task Queue
+    err = w.Run(worker.InterruptCh())
+    if err != nil {
+        log.Fatalln("Unable to start Worker", err)
+    }
+}
+```
+
+The Worker polls on the specified Task Queue, processing those Tasks, and reporting the results back to the Temporal Service. They execute both the Workflows and Activities, and the SDK ensures that they perform these tasks efficiently and reliably.
+
+### APIs to customize Activity Execution behavior
+
+Activities in Temporal are individual units of work that often represent non-deterministic parts of the code logic, such as querying a database or calling an external service. The SDK provides APIs to customize the behavior of an Activity Execution.
+
+By default, if an Activity attempts to communicate with another system and encounters a transient failure like a network issue, Temporal ensures the Activity is tried again automatically.
+
+However, Temporal enables developers to control a variety of timeouts, a Retry Policy, Heartbeat monitoring, and asynchronous completion.
+
+The following code is an example of a custom set of Activity Execution options that affect the timeout and retry behavior of the execution, should the Activity encounter a failure.
+
+:::caution Do not copy and use code
+
+The following code is for example purposes only.
+For tested code samples and best practices, use your preferred language SDK's developer's guide.
+
+:::
+
+```go
+// LoanApplicationWorkflow is the Workflow Definition.
+func LoanApplicationWorkflow(ctx workflow.Context, applicantName string, loanAmount int) (string, error) {
+    // ...
+    var creditCheckResult string
+    // set a Retry Policy
+    ao := workflow.ActivityOptions{
+		ScheduleToCloseTimeout: time.Hour,
+		HeartbeatTimeout:       time.Minute,
+		RetryPolicy:            &temporal.RetryPolicy{
+			InitialInterval:    time.Second,
+			BackoffCoefficient: 2,
+			MaximumInterval:    time.Minute,
+			MaximumAttempts:    5,
+		},
+	}
+    ctx = workflow.WithActivityOptions(ctx, ao)
+    err = workflow.ExecuteActivity(ctx, LoanCreditCheckActivity, loanAmount).Get(ctx, &creditCheckResult)
+    if err != nil {
+        return "", err
+    }
+	// ...
+    return notificationResult, nil
+}
+
+// LoanCreditCheckActivity is an Activity function that performs a credit check.
+func LoanCreditCheckActivity(ctx context.Context, loanAmount int) (string, error) {
+	// ... your logic here ...
+	return "Credit check passed", nil
+}
+```
+
+## The SDK and Temporal Service relationship {#sdk-and-cluster-relationship}
+
+**How do the Temporal SDKs work with the Temporal Service?**
+
+The Temporal Service functions more as a choreographer than a conductor. Rather than directly assigning tasks to Workers, the Temporal Service arranges the Tasks into a Task Queue while Workers poll the Task Queue. Developers may create a fleet of Workers and tune them so that a Task is picked up as soon as it is available. If a Worker goes down, Tasks can wait until the next Worker is available.
+
+A Workflow might request to execute an Activity, start a Timer, or start a Child Workflow, each of which translates into a Command, dispatched to the Temporal Service.
+In addition to acting on these Commands, the Temporal Service documents that interaction by appending their corresponding Events into to the Workflow Execution's Event History.
+
+Take for instance the call to execute an Activity. When a Workflow invokes it, the Worker doesn't immediately execute that Activity code. Instead, it generates a ScheduleActivityTask Command, dispatching it to the Cluster. In response, the Cluster queues up a new Activity Task. Only when a Worker finds itself free, it collects the task and begins executing the Activity code.
+
+The Temporal Service persists Workflow Execution Event History, so that if there is a failure, the SDK Worker is able to Replay the execution and resume where it left off.
+
+This is where the deterministic constraints of the Workflow code comes into play, requiring the use of Activities to create side effects and interact with the outside world.
+
+Let's look at an example Workflow with a single Activity.
+
+```go
+func LoanApplication(ctx workflow.Context, input *LoanApplicationWorkflowInput) (*LoanApplicationWorkflowResult, error) {
+
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+	})
+
+	var result activities.NotifyApplicantActivityResult
+	f := workflow.ExecuteActivity(ctx, a.NotifyApplicantActivity, NotifyApplicantActivityInput(*input))
+
+	err := f.Get(ctx, &result)
+
+	// Return the results
+	return &l.LoanApplicationState, nil
+}
+
+type Activities struct {}
+
+func (a *Activities) NotifyApplicantActivity(ctx context.Context, input *NotifyApplicantActivityInput) (*NotifyApplicantActivityResult, error) {
+	var result NotifyApplicantActivityResult
+
+	// Call the thirdparty API and handle the result
+
+	return &result, err
+}
+```
+
+The Activity above is performing a single call to an external API. Since the call can fail due to transient issues, we define it outside of the Workflow and provide it with retry options.
+
+When you create a new Worker process, the Worker creates a long-lasting connection to the Temporal Service, polling a Task Queue for Tasks that related to the code it is capable of executing.
+
+<CaptionedImage
+    src="/diagrams/how-sdk-works-1.svg"
+    title="A Worker long polls for Tasks" />
+
+Although the Worker is now running, unless a Workflow is explicitly started, the Task Queue doesn't have any Tasks on it and so, no code executes.
+We can use a Temporal Client (available in Temporal SDKs and the Temporal CLI) to start a new Workflow.
+
+<CaptionedImage
+    src="/diagrams/how-sdk-works-2.svg"
+    title="Start a Workflow using a Temporal Client" />
+
+Starting a Workflow Execution creates a new Event, WorkflowExecutionStarted, and adds it to the Workflow Execution's Event History.
+
+The Temporal Service then schedules a Workflow Task by adding it to the Task Queue.
+When the Worker has capacity, it picks up this Task, and begin executing code.
+
+Each step of the Task (e.g. Scheduled, Started, and Completed), gets recorded into the Event History.
+
+- Scheduled means that the Temporal Service has added a Task to the Task Queue.
+- Started means that the Worker has dequeued the Task.
+- Completed means that the Worker finished executing the Task by responding to the Temporal Service.
+
+When the call to invoke the Activity is evaluated, the Worker suspends executing the code and sends a Command to the Temporal Service to schedule an Activity Task.
+
+<CaptionedImage
+    src="/diagrams/how-sdk-works-3.svg"
+    title="Worker suspends code execution and sends a Command to the Temporal Service" />
+
+When the Worker process can perform more work, it picks up the Activity Task and begins executing the Activity code, which includes the call to the external API.
+
+If the Activity fails, say the API goes down, Temporal will automatically retry the Activity with one second between intervals, as the configurations have defined, an infinite amount of times until the Activity succeeds or is canceled.
+
+In the case where the calls succeeds, and the code completes, the Worker tells the Temporal Service the Activity Task completed.
+
+<CaptionedImage
+    src="/diagrams/how-sdk-works-activity.svg"
+    title="The Worker reports that the Activity Execution completed" />
+
+Included is any data that was returned from the Activity (results of the API call), which is then persisted in the Workflow Execution Event History, and is now accessible to the Workflow code.
+
+The Temporal Service creates a new Workflow Task which the Worker picks up.
+
+<CaptionedImage
+    src="/diagrams/how-sdk-works-1.svg"
+    title="The Worker picks up the new Task" />
+
+This is when the SDK Worker Replays the Workflow code, uses the Event History as guidance on what to expect. If the Replay encounters an Event that doesn't match up with what is expected from the code, a [non-determinism](/references/errors#non-deterministic-error) error gets thrown.
+
+If there is alignment, the Worker continues evaluating code.
+
+Assuming the Activity Execution is successful, the Workflow now has the result of the Activity and the Worker is able to finish evaluating and executing the Workflow code, responding to the Temporal Service when complete.
+
+The result of the Workflow can now be retrieved using a Temporal Client.
+
+<CaptionedImage
+    src="/diagrams/how-sdk-works-4.svg"
+    title="The Temporal Client can now access the result of the Workflow" />
+
+And that’s how a Temporal Worker and Temporal Service work together.
+
+---
+
+## Core application - Temporal feature
+
+**Workflows**, **Activities**, and **Workers** form the core parts of a Temporal Application.
+
+**Workflows**: A Workflow defines the overall flow of the application.
+You write it in your programming language of choice using the Temporal SDK.
+Conceptually, a Workflow specifies a sequence of steps and orchestrates the execution of Activities.
+
+**Activities**: An Activity is a method or function that encapsulates business logic prone to failure (e.g., calling a service that may go down).
+The system can automatically retry these Activities upon some failures.
+Activities perform a single, well-defined action, such as calling another service, transcoding a media file, or sending an email message.
+
+**Workers**: A Worker executes your Workflow and Activity code.
+
+**Follow one of our tutorials to [Get started](https://learn.temporal.io/getting_started/) learning how to develop Workflows and Activities and run them in Worker Processes.**
+
+Or jump straight to a Temporal SDK feature guide:
+
+<RelatedReadContainer>
+  <RelatedReadItem path="/develop/go/core-application" text="Go SDK Core application feature guide" archetype="feature-guide" />
+  <RelatedReadItem path="/develop/java/core-application" text="Java SDK Core application feature guide" archetype="feature-guide" />
+  <RelatedReadItem path="/develop/php/core-application" text="PHP SDK Core application feature guide" archetype="feature-guide" />
+  <RelatedReadItem path="/develop/python/core-application" text="Python SDK Core application feature guide" archetype="feature-guide" />
+  <RelatedReadItem path="/develop/typescript/core-application#connect-to-a-dev-cluster" text="TypeScript SDK Core application feature guide" archetype="feature-guide" />
+  <RelatedReadItem path="/develop/dotnet/core-application" text=".NET SDK Core application feature guide" archetype="feature-guide" />
+</RelatedReadContainer>
+
+For a deep dive into Temporal Workflows, Activities, and Workers, visit the following Temporal Encyclopedia pages or enroll in one of [our courses](https://learn.temporal.io/courses/).
+
+- [Temporal Workflows](/workflows)
+- [Temporal Activities](/activities)
+- [Temporal Workers](/workers)
+
+---
+
+## Quickstarts
+
+
+Choose your language to get started quickly.
+
+<QuickstartCards
+  items={[
+    { href: "/develop/go/set-up-your-local-go", title: "Go", description: "Install the Go SDK and run a Hello World Workflow in Go." },
+    { href: "/develop/java/set-up-your-local-java", title: "Java", description: "Install the Java SDK and run a Hello World Workflow in Java." },
+    { href: "/develop/ruby/set-up-local-ruby", title: "Ruby", description: "Install the Ruby SDK and run a Hello World Workflow in Ruby." },
+    { href: "/develop/python/set-up-your-local-python", title: "Python", description: "Install the Python SDK and run a Hello World Workflow in Python." },
+    { href: "/develop/typescript/set-up-your-local-typescript", title: "TypeScript", description: "Install the TypeScript SDK and run a Hello World Workflow in TypeScript." },
+    { href: "/develop/dotnet/set-up-your-local-dotnet", title: ".NET", description: "Install the .NET SDK and run a Hello World Workflow in C#." },
+  ]}
+/>

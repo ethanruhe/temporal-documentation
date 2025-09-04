@@ -1,0 +1,853 @@
+# Getting Started with Temporal
+
+> Build invincible applications
+
+This file contains all documentation content in a single document following the llmstxt.org standard.
+
+## About Temporal SDKs
+
+Temporal SDKs (software development kits) are an open source collection of tools, libraries, and APIs that enable Temporal Application development.
+
+They offer a [Temporal Client](#temporal-client) to interact with the [Temporal Service](/temporal-service), APIs to develop your [Temporal Application](#temporal-application), and APIs to run horizontally scalable [Workers](/workers#worker).
+
+SDKs are more than just a development tool, however.
+The SDK APIs enable developers to write code in a particular pattern that mirrors real world processes.
+The SDK's internal implementation, working in collaboration with the Temporal Service, steps through that code, guaranteeing execution progression during application runtime.
+
+## Temporal Applications {#temporal-application}
+
+A Temporal Application is the code you write, comprised of [Workflow Definitions](/workflow-definition), [Activity Definitions](/workflow-definition), code used to configure [Temporal Clients](#temporal-client), and code used to configure and start [Workers](/workers#worker).
+Developers create Temporal Applications using an [official Temporal SDK](#official-sdks).
+
+Consider that the Workflow Definition code can be executed repeatedly.
+The Temporal Platform can concurrently support millions to billions of Workflow Executions, each of which representing an invoked Workflow Definition.
+
+Additionally, a Temporal Workflow Execution is both resumable and recoverable, and it can react to external events.
+
+- Resumable: The ability of a process to resume execution after suspending on an _awaitable_.
+- Recoverable: The ability of a process to resume execution after suspending due to a _failure_.
+- Reactive: The ability of a process to respond to external events.
+
+Hence, a Temporal Application can run for seconds or years in the presence of arbitrary load and failures.
+
+## Official SDKs {#official-sdks}
+
+**What are the officially supported SDKs?**
+
+Each Temporal SDK targets a specific programming language.
+
+- [Go SDK feature guides](/develop/go)
+- [Java SDK feature guides](/develop/java)
+- [PHP SDK feature guides](/develop/php)
+- [Python SDK feature guides](/develop/python/)
+- [TypeScript SDK feature guides](/develop/typescript/)
+- [.NET SDK feature guides](/develop/dotnet)
+- [Ruby SDK README](https://github.com/temporalio/sdk-ruby)
+
+Despite supporting multiple languages, and supporting many features, Temporal SDKs aim to make developers feel at home in their language.
+
+### Third-party SDKs
+
+The following third-party SDKs exist but are not supported in Temporal's documentation:
+
+- [Clojure](https://github.com/manetu/temporal-clojure-sdk) - from [@Manetu](https://github.com/manetu)
+- [Scala](https://github.com/vitaliihonta/zio-temporal) from [@vitaliihonta](https://github.com/vitaliihonta)
+- [Ruby](https://github.com/coinbase/temporal-ruby) from [@coinbase](https://github.com/coinbase)
+
+## Why use a Temporal SDK? {#why-use-an-sdk}
+
+Temporal SDKs empowers developers to concentrate on creating dependable and scalable business logic, alleviating the need to build home grown supervisor systems to ensure reliability and fault-tolerance. This is possible because the Temporal SDK provides a unified library that abstracts the intricacies of how Temporal handles distributed systems.
+
+### Development pattern
+
+By abstracting complexities and streamlining boilerplate code, developers can craft straightforward code that directly aligns with their business logic, enhancing code readability and bolstering developer productivity.
+
+Consider a bank loan application.
+Developers can design the business logic of a bank loan using the Temporal SDK.
+The Workflow defines the overarching business logic, encompassing tasks such as validating applicant information, credit checks, loan approval, and applicant notifications, as Activities.
+
+:::caution Do not copy and use code
+
+The following is pseudocode. For tested samples see your language SDK's developer's guide.
+
+:::
+
+```
+func LoanApplicationWorkflow {
+
+    sdk.ExecuteActivity(CreditCheck)
+
+    sdk.ExecuteActivity(AutomatedApproval)
+
+    sdk.ExecuteActivity(NotifyApplicant)
+
+    // ...
+}
+```
+
+For instance, Temporal SDKs have built-in support for handling failures, timeouts, and retries.
+In the event of an Activity failure, the SDK automatically initiates retries according to configurable policies established by the developer within the SDK. This streamlined process simplifies the integration of fault-tolerance mechanisms into applications.
+
+:::caution Do not copy and use code
+
+The following is pseudocode. For tested samples see your language SDK's developer's guide.
+
+:::
+
+```
+func LoanApplicationWorkflow {
+
+    options = {
+        MaxAttempts: 3,
+        StartToCloseTimeout: 30min,
+        HeartbeatTimeout: 10min,
+    }
+
+    sdk.ExecuteActivity(CreditCheck, options)
+
+    sdk.ExecuteActivity(AutomatedApproval)
+
+    sdk.ExecuteActivity(NotifyApplicant)
+
+    // ...
+}
+```
+
+### Replays
+
+Another quality of the SDKs lies in their ability to replay Workflow Executions, a complex operation that contributes significantly to the Platform's promised reliability.
+
+<CaptionedImage
+    src="/diagrams/replay-basic.svg"
+    title="The SDKs Replay code execution to continue from the last step" />
+
+We will delve into this idea more later, but for now, it signifies that the SDKs can automatically continue a process from the point of interruption, should a failure occur.
+This capability stems from the SDK's ability to persist each step the program takes.
+
+{/* - [Developing for Durable Execution using the Go SDK](/develop/go/durable-execution) */}
+
+## Temporal SDKs major components {#major-components}
+
+**What are the major components of Temporal SDKs?**
+
+Temporal SDKs offer developers the following:
+
+- A Temporal Client to communicate with a Temporal Service
+- APIs to develop application code (Workflows & Activities)
+- APIs to configure and run Workers
+
+<CaptionedImage
+    src="/diagrams/temporal-sdk-components.svg"
+    title="Temporal SDK components create a runtime across your environment and a Temporal Service" />
+
+Let's break down each one.
+
+### Temporal Client
+
+A Temporal Client acts as the bridge for communication between your applications and the Temporal Service.
+The Client performs key functions that facilitate the execution of, management of, and communication with Workflows.
+
+The most common operations that a Temporal Client enables you to perform are the following:
+
+- Get the result of Workflow Execution.
+- List Workflow Executions.
+- Query a Workflow Execution.
+- Signal a Workflow Execution.
+- Start a Workflow Execution.
+
+The following code is an example using the Go SDK.
+It showcases how to initialize a Temporal Client, create a connection to a local Temporal Service, and start a Workflow Execution:
+
+:::caution Do not copy and use code
+
+The following code is for example purposes only.
+For tested code samples and best practices, use your preferred language SDK's developer's guide.
+
+- [Go SDK Temporal Client feature guide](/develop/go/temporal-client)
+- [Java SDK Temporal Client feature guide](/develop/java/temporal-client)
+- [PHP SDK Temporal Client feature guide](/develop/php/temporal-client#connect-to-a-dev-cluster)
+- [Python SDK Temporal Client feature guide](/develop/python/temporal-client#connect-to-a-dev-cluster)
+- [TypeScript SDK Temporal Client feature guide](/develop/typescript/core-application#connect-to-a-dev-cluster)
+
+:::
+
+```go
+package main
+
+	"context"
+
+	"go.temporal.io/sdk/client"
+)
+
+func main() {
+	// Temporal Client setup code
+	c, err := client.NewClient(client.Options{})
+	if err != nil {
+		log.Fatalln("Unable to create client", err)
+	}
+	defer c.Close()
+	// Prepare Workflow option and parameters
+	workflowOptions := client.StartWorkflowOptions{
+		ID:        "loan-application-1",
+		TaskQueue: "loan-application-task-queue",
+	}
+	applicantDetails := ApplicantDetails{
+		// ...
+	}
+	// Start the Workflow
+	workflowRun, err := c.ExecuteWorkflow(context.Background(), workflowOptions, "loan-application-workflow", applicantDetails)
+	if err != nil {
+		// ...
+	}
+	// ...
+}
+```
+
+Developers can then use the Client as the main entry point for interacting with the application through Temporal.
+Using that Client, developers may for example start or Signal Workflows, Query a Workflow's state, etc.
+We can see in the example above how the developer has used `ExecuteWorkflow` API to start a Workflow.
+
+### APIs to Develop Workflows
+
+Workflows are defined as code: either a function or an object method, depending on the language.
+
+For example, the following is a valid Temporal Workflow in Go:
+
+:::caution Do not copy and use code
+
+The following code is for example purposes only.
+For tested code samples and best practices, use your preferred language SDK's developer's guide.
+
+:::
+
+```go
+func LoanApplication(ctx context.Context) (error) {
+    // ...
+	return nil
+}
+```
+
+The Workflow code uses Temporal SDK APIs to orchestrate the steps of the application.
+
+:::caution Do not copy and use code
+
+The following code is for example purposes only.
+For tested code samples and best practices, use your preferred language SDK's developer's guide.
+
+:::
+
+```go
+func LoanApplication(ctx workflow.Context, input *LoanApplicationWorkflowInput) (*LoanApplicationWorkflowResult, error) {
+	// ...
+	var result activities.CreditCheckResult
+	f := workflow.ExecuteActivity(ctx, a.CreditCheck, CreditCheckInput(*input))
+	err := f.Get(ctx, &result)
+	// ...
+	// Return the results
+	return &loanApplicationResults, nil
+}
+```
+
+A Workflow executes Activities (other functions that interact with external systems), handles and sends messages (Queries, Signals, Updates), and interacts with other Workflows.
+
+This Workflow code, while executing, can be paused, resumed, and migrated across physical machines without losing state.
+
+When a Workflow calls the API to execute an Activity, the Worker sends a [Command](https://docs.temporal.io/references/commands) back to the Temporal Service. The Temporal Service creates Activity Tasks in response which the same or a different Worker can then pick up and begin executing. In this way, the Worker and Temporal Service work together to incrementally execute Workflow code in a reliable way.
+We discuss this more in detail in [The SDK and Temporal Service relationship](/encyclopedia/temporal-sdks#sdk-and-cluster-relationship) section.
+
+The SDK APIs also enable developers to write code that more genuinely maps to their process. This is because without a specialized SDK, developers might have to write a lot of boilerplate code. This can lead to code that's hard to maintain, difficult to understand, or that doesn't directly correspond to the underlying business process.
+
+For example, the bank loan application Workflow might actually look like this:
+
+:::caution Do not copy and use code
+
+The following code is for example purposes only.
+For tested code samples and best practices, use your preferred language SDK's developer's guide.
+
+:::
+
+```go
+// LoanApplicationWorkflow is the workflow definition.
+func LoanApplicationWorkflow(ctx workflow.Context, applicantName string, loanAmount int) (string, error) {
+	// Step 1: Notify the applicant that the application process has started
+	err := workflow.ExecuteActivity(ctx, NotifyApplicantActivity, applicantName, "Application process started").Get(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+
+	// Step 2: Perform a credit check
+	var creditCheckResult string
+	err = workflow.ExecuteActivity(ctx, LoanCreditCheckActivity, loanAmount).Get(ctx, &creditCheckResult)
+	if err != nil {
+		return "", err
+	}
+
+	// Step 3: Perform an automatic approval check
+	var approvalCheckResult string
+	err = workflow.ExecuteActivity(ctx, AutomaticApprovalCheckActivity, creditCheckResult).Get(ctx, &approvalCheckResult)
+	if err != nil {
+		return "", err
+	}
+
+	// Step 4: Notify the applicant of the decision
+	var notificationResult string
+	err = workflow.ExecuteActivity(ctx, NotifyApplicantActivity, applicantName, approvalCheckResult).Get(ctx, &notificationResult)
+	if err != nil {
+		return "", err
+	}
+
+	return notificationResult, nil
+}
+```
+
+The level of abstraction that APIs offer enables the developer to focus on business logic without having to worry about the intricacies of distributed computing such as retries, or having to explicitly maintain a state machine and the intermediate state for each step of the process.
+
+Additionally, the state of the Workflow is automatically persisted so if a failure does occur, it resumes right where it left off.
+
+### APIs to create and manage Worker Processes
+
+Workers are responsible for executing Workflow and Activity code (application code). The SDK provides APIs for configuring and starting Workers, enabling developers to control how the code is executed.
+Workers are horizontally scalable, often run with systems like Kubernetes, and configured according to the application's needs.
+
+Here is an example of how you could initialize a Worker using the Go SDK.
+
+:::caution Do not copy and use code
+
+The following code is for example purposes only.
+For tested code samples and best practices, use your preferred language SDK's developer's guide.
+
+:::
+
+```go
+func main() {
+    // Create the client object just once per process
+    c, err := client.NewClient(client.Options{})
+    if err != nil {
+        log.Fatalln("Unable to create Temporal client", err)
+    }
+    defer c.Close()
+
+    // Create the Worker instance
+    w := worker.New(c, "loan-application-task-queue", worker.Options{})
+
+    // Register the workflow and activity with the worker
+    w.RegisterWorkflow(LoanApplicationWorkflow)
+    w.RegisterActivity(LoanCreditCheck)
+
+    // Start listening to the Task Queue
+    err = w.Run(worker.InterruptCh())
+    if err != nil {
+        log.Fatalln("Unable to start Worker", err)
+    }
+}
+```
+
+The Worker polls on the specified Task Queue, processing those Tasks, and reporting the results back to the Temporal Service. They execute both the Workflows and Activities, and the SDK ensures that they perform these tasks efficiently and reliably.
+
+### APIs to customize Activity Execution behavior
+
+Activities in Temporal are individual units of work that often represent non-deterministic parts of the code logic, such as querying a database or calling an external service. The SDK provides APIs to customize the behavior of an Activity Execution.
+
+By default, if an Activity attempts to communicate with another system and encounters a transient failure like a network issue, Temporal ensures the Activity is tried again automatically.
+
+However, Temporal enables developers to control a variety of timeouts, a Retry Policy, Heartbeat monitoring, and asynchronous completion.
+
+The following code is an example of a custom set of Activity Execution options that affect the timeout and retry behavior of the execution, should the Activity encounter a failure.
+
+:::caution Do not copy and use code
+
+The following code is for example purposes only.
+For tested code samples and best practices, use your preferred language SDK's developer's guide.
+
+:::
+
+```go
+// LoanApplicationWorkflow is the Workflow Definition.
+func LoanApplicationWorkflow(ctx workflow.Context, applicantName string, loanAmount int) (string, error) {
+    // ...
+    var creditCheckResult string
+    // set a Retry Policy
+    ao := workflow.ActivityOptions{
+		ScheduleToCloseTimeout: time.Hour,
+		HeartbeatTimeout:       time.Minute,
+		RetryPolicy:            &temporal.RetryPolicy{
+			InitialInterval:    time.Second,
+			BackoffCoefficient: 2,
+			MaximumInterval:    time.Minute,
+			MaximumAttempts:    5,
+		},
+	}
+    ctx = workflow.WithActivityOptions(ctx, ao)
+    err = workflow.ExecuteActivity(ctx, LoanCreditCheckActivity, loanAmount).Get(ctx, &creditCheckResult)
+    if err != nil {
+        return "", err
+    }
+	// ...
+    return notificationResult, nil
+}
+
+// LoanCreditCheckActivity is an Activity function that performs a credit check.
+func LoanCreditCheckActivity(ctx context.Context, loanAmount int) (string, error) {
+	// ... your logic here ...
+	return "Credit check passed", nil
+}
+```
+
+## The SDK and Temporal Service relationship {#sdk-and-cluster-relationship}
+
+**How do the Temporal SDKs work with the Temporal Service?**
+
+The Temporal Service functions more as a choreographer than a conductor. Rather than directly assigning tasks to Workers, the Temporal Service arranges the Tasks into a Task Queue while Workers poll the Task Queue. Developers may create a fleet of Workers and tune them so that a Task is picked up as soon as it is available. If a Worker goes down, Tasks can wait until the next Worker is available.
+
+A Workflow might request to execute an Activity, start a Timer, or start a Child Workflow, each of which translates into a Command, dispatched to the Temporal Service.
+In addition to acting on these Commands, the Temporal Service documents that interaction by appending their corresponding Events into to the Workflow Execution's Event History.
+
+Take for instance the call to execute an Activity. When a Workflow invokes it, the Worker doesn't immediately execute that Activity code. Instead, it generates a ScheduleActivityTask Command, dispatching it to the Cluster. In response, the Cluster queues up a new Activity Task. Only when a Worker finds itself free, it collects the task and begins executing the Activity code.
+
+The Temporal Service persists Workflow Execution Event History, so that if there is a failure, the SDK Worker is able to Replay the execution and resume where it left off.
+
+This is where the deterministic constraints of the Workflow code comes into play, requiring the use of Activities to create side effects and interact with the outside world.
+
+Let's look at an example Workflow with a single Activity.
+
+```go
+func LoanApplication(ctx workflow.Context, input *LoanApplicationWorkflowInput) (*LoanApplicationWorkflowResult, error) {
+
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+	})
+
+	var result activities.NotifyApplicantActivityResult
+	f := workflow.ExecuteActivity(ctx, a.NotifyApplicantActivity, NotifyApplicantActivityInput(*input))
+
+	err := f.Get(ctx, &result)
+
+	// Return the results
+	return &l.LoanApplicationState, nil
+}
+
+type Activities struct {}
+
+func (a *Activities) NotifyApplicantActivity(ctx context.Context, input *NotifyApplicantActivityInput) (*NotifyApplicantActivityResult, error) {
+	var result NotifyApplicantActivityResult
+
+	// Call the thirdparty API and handle the result
+
+	return &result, err
+}
+```
+
+The Activity above is performing a single call to an external API. Since the call can fail due to transient issues, we define it outside of the Workflow and provide it with retry options.
+
+When you create a new Worker process, the Worker creates a long-lasting connection to the Temporal Service, polling a Task Queue for Tasks that related to the code it is capable of executing.
+
+<CaptionedImage
+    src="/diagrams/how-sdk-works-1.svg"
+    title="A Worker long polls for Tasks" />
+
+Although the Worker is now running, unless a Workflow is explicitly started, the Task Queue doesn't have any Tasks on it and so, no code executes.
+We can use a Temporal Client (available in Temporal SDKs and the Temporal CLI) to start a new Workflow.
+
+<CaptionedImage
+    src="/diagrams/how-sdk-works-2.svg"
+    title="Start a Workflow using a Temporal Client" />
+
+Starting a Workflow Execution creates a new Event, WorkflowExecutionStarted, and adds it to the Workflow Execution's Event History.
+
+The Temporal Service then schedules a Workflow Task by adding it to the Task Queue.
+When the Worker has capacity, it picks up this Task, and begin executing code.
+
+Each step of the Task (e.g. Scheduled, Started, and Completed), gets recorded into the Event History.
+
+- Scheduled means that the Temporal Service has added a Task to the Task Queue.
+- Started means that the Worker has dequeued the Task.
+- Completed means that the Worker finished executing the Task by responding to the Temporal Service.
+
+When the call to invoke the Activity is evaluated, the Worker suspends executing the code and sends a Command to the Temporal Service to schedule an Activity Task.
+
+<CaptionedImage
+    src="/diagrams/how-sdk-works-3.svg"
+    title="Worker suspends code execution and sends a Command to the Temporal Service" />
+
+When the Worker process can perform more work, it picks up the Activity Task and begins executing the Activity code, which includes the call to the external API.
+
+If the Activity fails, say the API goes down, Temporal will automatically retry the Activity with one second between intervals, as the configurations have defined, an infinite amount of times until the Activity succeeds or is canceled.
+
+In the case where the calls succeeds, and the code completes, the Worker tells the Temporal Service the Activity Task completed.
+
+<CaptionedImage
+    src="/diagrams/how-sdk-works-activity.svg"
+    title="The Worker reports that the Activity Execution completed" />
+
+Included is any data that was returned from the Activity (results of the API call), which is then persisted in the Workflow Execution Event History, and is now accessible to the Workflow code.
+
+The Temporal Service creates a new Workflow Task which the Worker picks up.
+
+<CaptionedImage
+    src="/diagrams/how-sdk-works-1.svg"
+    title="The Worker picks up the new Task" />
+
+This is when the SDK Worker Replays the Workflow code, uses the Event History as guidance on what to expect. If the Replay encounters an Event that doesn't match up with what is expected from the code, a [non-determinism](/references/errors#non-deterministic-error) error gets thrown.
+
+If there is alignment, the Worker continues evaluating code.
+
+Assuming the Activity Execution is successful, the Workflow now has the result of the Activity and the Worker is able to finish evaluating and executing the Workflow code, responding to the Temporal Service when complete.
+
+The result of the Workflow can now be retrieved using a Temporal Client.
+
+<CaptionedImage
+    src="/diagrams/how-sdk-works-4.svg"
+    title="The Temporal Client can now access the result of the Workflow" />
+
+And that’s how a Temporal Worker and Temporal Service work together.
+
+---
+
+## What is Temporal?
+
+Temporal is a scalable and reliable runtime for durable function executions called [Temporal Workflow Executions](/workflow-execution).
+
+Said another way, it's a platform that guarantees the [Durable Execution](#durable-execution) of your application code.
+
+It enables you to develop as if failures don't even exist.
+Your application will run reliably even if it encounters problems, such as network outages or server crashes, which would be catastrophic for a typical application.
+The Temporal Platform handles these types of problems, allowing you to focus on the business logic, instead of writing application code to detect and recover from failures.
+
+<CaptionedImage
+    src="/diagrams/temporal-system-simple.svg"
+    title="The Temporal System"
+    />
+
+## Durable Execution {#durable-execution}
+
+Durable Execution in the context of Temporal refers to the ability of a Workflow Execution to maintain its state and progress even in the face of failures, crashes, or server outages.
+This is achieved through Temporal's use of an [Event History](/workflow-execution/event#event-history), which records the state of a Workflow Execution at each step.
+If a failure occurs, the Workflow Execution can resume from the last recorded event, ensuring that progress isn't lost.
+This durability is a key feature of Temporal Workflow Executions, making them reliable and resilient.
+It enables application code to execute effectively once and to completion, regardless of whether it takes seconds or years.
+
+## What is the Temporal Platform? {#temporal-platform}
+
+The Temporal Platform consists of a [Temporal Service](/temporal-service) and [Worker Processes](/workers#worker-process).
+Together these components create a runtime for Workflow Executions.
+
+The Temporal Platform consists of a supervising software typically called the [Temporal Service](/temporal-service) and application code bundled as Worker Processes.
+Together these components create a runtime for your application.
+
+<CaptionedImage
+    src="/diagrams/temporal-platform-simple.svg"
+    title="The Temporal Platform"
+    />
+
+A Temporal Service consists of the [Temporal Server](https://github.com/temporalio/temporal), written in Go, and a database.
+
+Our software as a service (SaaS) offering, Temporal Cloud, offers an alternative to hosting the Temporal Service yourself.
+
+Worker Processes are hosted and operated by you and execute your code. Workers run using one of our SDKs.
+
+<CaptionedImage
+    src="/diagrams/temporal-platform-component-topology.svg"
+    title="Basic component topology of the Temporal Platform"
+    width="90%"
+    />
+
+## What is a Temporal Application? {#temporal-application}
+
+A Temporal Application is a set of [Temporal Workflow Executions](/workflow-execution).
+Each Temporal Workflow Execution has exclusive access to its local state, executes concurrently to all other Workflow Executions, and communicates with other Workflow Executions and the environment via message passing.
+
+A Temporal Application can consist of millions to billions of Workflow Executions.
+Workflow Executions are lightweight
+A Workflow Execution consumes few compute resources; in fact, if a Workflow Execution is suspended, such as when it is in a waiting state, the Workflow Execution consumes no compute resources at all.
+
+**Reentrant Process**
+
+A Temporal Workflow Execution is a Reentrant Process. A Reentrant Process is resumable, recoverable, and reactive.
+
+- Resumable: Ability of a process to continue execution after execution was suspended on an _awaitable_.
+- Recoverable: Ability of a process to continue execution after execution was suspended on a _failure_.
+- Reactive: Ability of a process to react to external events.
+
+Therefore, a Temporal Workflow Execution executes a [Temporal Workflow Definition](/workflow-definition), also called a Temporal Workflow Function, your application code, exactly once and to completion—whether your code executes for seconds or years, in the presence of arbitrary load and arbitrary failures.
+
+## What is a Failure? {#failure}
+
+[Temporal Failures](/references/failures) are representations (in the SDKs and Event History) of various types of errors that occur in the system.
+
+Failure handling is an essential part of development.
+For more information, including the difference between application-level and platform-level failures, see [Handling Failure From First Principles](https://dominik-tornow.medium.com/handling-failures-from-first-principles-1ed976b1b869).
+For the practical application of those concepts in Temporal, see [Failure Handling in Practice](https://temporal.io/blog/failure-handling-in-practice).
+
+For languages that throw (or raise) errors (or exceptions), throwing an error that is not a Temporal Failure from a Workflow fails the Workflow Task (and the Task will be retried until it succeeds), whereas throwing a Temporal Failure (or letting a Temporal Failure propagate from Temporal calls, like an [Activity Failure](/references/failures#activity-failure) from an Activity call) fails the Workflow Execution.
+For more information, see [Application Failure](/references/failures#application-failure).
+
+---
+
+## Understanding Temporal
+
+Temporal offers an entirely new way to build scalable and reliable applications.
+
+## Build Invincible Apps
+
+In any complex system, failures are bound to happen.
+Software engineers spend a lot of time ensuring that what they build can withstand potential failures.
+Temporal makes your code execution reliable and durable by default.
+
+Normally, if a crash occurs then the state of your application's execution is lost.
+The application has no memory of what happened before the failure, requiring extensive error handling logic and complex recovery code to resume.
+The process is time-consuming and error-prone, making it difficult to ensure reliability.
+
+Temporal tracks the progress of your application.
+If something goes wrong, like a power outage, it guarantees that your application can pick up right where it left off — it’s like having the ultimate autosave.
+Offloading the responsibility of failure management from the application to the platform removes the need for extensive recovery coding, testing, and maintenance tasks.
+
+### Durable Execution
+
+Temporal is a Durable Execution Platform.
+Durable Execution ensures that your application behaves correctly despite adverse conditions by guaranteeing that it will run to completion.
+This shift simplifies the development process. If a failure or a crash happens, your business processes keep running seamlessly without interruptions.
+Developers shift their focus on business logic rather than infrastructure concerns and create applications that are inherently scalable and maintainable.
+
+Thousands of developers trust Temporal for use cases like order processing, customer onboarding, and payment handling because it enables them to build invincible applications that are resilient, durable, and _just work_.
+With Temporal, your applications keep running, no matter what happens.
+
+## Temporal Application: The Building Blocks
+
+### Workflow
+
+Conceptually, a Workflow is a sequence of steps.
+You've likely encountered Workflows in your daily life, whether it's:
+
+- Using a mobile app to transfer money
+- Booking a vacation
+- Filing an expense report
+- Creating a new employee onboarding process
+- Deploying cloud infrastructure
+- Training an AI model
+
+A Temporal Workflow is your business logic, defined in code, outlining each step in your process.
+
+Temporal isn’t a no-code Workflow engine — it is **Workflows-as-Code**.
+Instead of dragging and dropping steps in a visual interface, you write your Workflows in code in your favorite programming language, code editor, and other tools.
+No-code engines eventually hit their limitations however, Temporal gives you full control and flexibility over your business processes.
+This allows you to build exactly what you need.
+
+### Activities
+
+Activities are the individual units of work in your Workflow.
+Activities are defined as either functions or methods, depending on the programming language.
+Activities often involve interacting with the outside world, such as sending emails, making network requests, writing to a database, or calling an API, which are prone to failure.
+You can call Activities directly from your Workflow code.
+
+If an Activity fails, Temporal automatically retries it based on your configuration.
+Since Activities often rely on external systems, transient issues can occur.
+These include temporary but critical problems like network failures, timeouts, or service outages.
+You have full control over how often and how many times these retries should happen for each Activity.
+
+### SDK
+
+Developers create Temporal applications by writing code, just like you would to create any other software.
+
+A Temporal SDK (software development kit) is an open-source library that developers add to their application to use Temporal.
+It provides everything needed to build Workflows, Activities, and various other Temporal features in a specific programming language.
+
+Temporal offers seven SDKs: .NET, Go, Java, PHP, Python, Ruby, TypeScript.
+Since Temporal supports multiple programming languages, you can mix-and-match between languages for polyglot teams.
+You can easily add any Temporal SDK to your current projects without changing the tools you're already using to build and deploy.
+Temporal fits right into your existing tech stack.
+
+## Temporal Service
+
+Temporal has two main parts:
+
+1. Your application
+2. The Temporal Service (a set of services and components)
+
+At the heart of Temporal architecture is the Temporal Service, which provides durability, scalability, and reliability for your application.
+Your application communicates with the Temporal Service and the Temporal Service oversees the execution of critical tasks such as making an API call, then records their completion.
+It maintains a detailed history of each event, which it reliably persists to a database.
+
+One of the biggest advantages of the Temporal Service is how it handles failures.
+The Temporal Service maintains a meticulous record of every step in your Workflows.
+By keeping a history of every step in your Workflow, it ensures that even if something goes wrong your Workflow can continue from the last successful point.
+The Temporal Service knows exactly where to resume without losing any work.
+This saves you from having to write complex error handling code or painstaking recovery mechanisms yourself.
+
+You can run the Temporal Service on your own infrastructure or use Temporal Cloud, a managed service that handles operational overhead and offers scalability and expert support.
+
+## Workers
+
+The real strength of Temporal comes from the combination of your application and the Temporal Service.
+Whenever your application needs to perform a task, like sending a notification or processing a payment, the Temporal Service orchestrates what needs to be done.
+Workers, which are part of your application and provided by the Temporal SDK, then carry out the tasks defined in your Workflow.
+
+The Worker polls the Temporal Service to see if there are tasks available and the Temporal Service matches the task with the Worker.
+The Worker runs the Workflow code based on the details specified in the task.
+
+This collaboration is crucial for building reliable, scalable, and durable applications.
+You can run multiple Workers — often dozens, hundreds, or even thousands — to improve application performance and scalability.
+
+A common misconception is that the Temporal Service runs your code.
+In fact, the Worker runs your code and works with your data directly.
+Temporal applications are secure by design.
+Workflows and Activities are seamlessly deployed within your infrastructure, fully integrated into your application.
+Your data is also protected with your encryption libraries and keys.
+You maintain full control over the security of your application from end to end.
+
+## Visibility
+
+There are two tools provided by Temporal that allow you to see behind the scenes and interact with your Workflows.
+These are powerful for debugging uses and provide real-time monitoring of your applications.
+
+### Temporal UI
+
+The Temporal UI is a browser-based user interface that allows you to see the progress of your application.
+Also, known as the Web UI, it can also help you to quickly isolate, debug, and resolve production problems.
+
+<CaptionedImage src="/img/webui/workflow-details-page-hiw.avif" title="Recent Workflows page" />
+
+### Temporal CLI
+
+The Temporal CLI is a command-line interface tool for managing, monitoring, and debugging Temporal Applications.
+Through your terminal, you can:
+
+- Start a Workflow
+- Trace the progress of a Workflow
+- Cancel or terminate a Workflow
+- And perform other operations
+
+The Temporal CLI provides developers with direct access to a Temporal Service for local development purposes.
+
+### Event History
+
+With Temporal, your Workflows can seamlessly recover from crashes. This is made possible by the [Event History](https://docs.temporal.io/workflow-execution/event), a complete and durable log of everything that has happened in the lifecycle of a Workflow Execution, as well as the ability of the Temporal Service to durably persist the Events during Replay.
+
+Temporal uses the Event History to record every step taken along the way. Each time your Workflow Definition makes an API call to execute an Activity or start a Timer for instance, it doesn’t perform the action directly. Instead, it sends a Command to the Temporal Service.
+
+A Command is a requested action issued by a Worker to the Temporal Service after a Workflow Task Execution completes. The Temporal Service will act on these Commands such as scheduling an Activity or scheduling a timer. These Commands are then mapped to Events which are persisted in case of failure. For example, if the Worker crashes, the Worker uses the Event History to replay the code and recreate the state of the Workflow Execution to what it was immediately before the crash. It then resumes progress from the point of failure as if the failure never occurred.
+
+For a deep dive into the Event History or Commands, visit the Temporal [Encyclopedia page](/encyclopedia/event-history) or enroll in one of [our courses](https://learn.temporal.io/courses/).
+
+## Reliable as Gravity
+
+Temporal provides effortless durability, allowing applications to run for days, weeks, or even years without interruption even if the underlying infrastructure fails.
+This is what we call _Durable Execution_. Temporal also represents a paradigm shift in software development.
+It's not just about making existing patterns more reliable; it's about enabling entirely new approaches to building complex, distributed systems.
+
+Temporal simplifies state management and developers don't have to write tons of extra code to handle every possible thing that could go wrong.
+With built-in scalability, Temporal ensures that your application runs smoothly, no matter its size or complexity.
+
+:::tip
+
+Follow one of our tutorials to [Get Started](https://learn.temporal.io/getting_started/) learning how to use a Temporal SDK.
+Or, jump straight into an [Introduction to Temporal 101](https://learn.temporal.io/courses/temporal_101/) course.
+
+Looking for more? Explore Temporal's [Resource Library](https://temporal.io/resources).
+:::
+
+---
+
+## Why Temporal?
+
+
+Temporal solves many problems that developers face while building distributed applications.
+But most of them revolve around these three themes:
+
+- Reliable distributed applications
+- Productive development paradigms and code structure
+- Visible distributed application state
+
+:::tip See Temporal in action
+Watch the following video to see how Temporal ensures an order-fulfillment system can recover from various failures, from process crashes to unreachable APIs.
+
+    <iframe width="560" height="315"
+        src="https://www.youtube.com/embed/dNVmRfWsNkM?si=cfwAJgr2zaoro97P"
+        title="YouTube video player"
+        frameBorder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        referrerPolicy="strict-origin-when-cross-origin" allowFullScreen></iframe>
+
+:::
+
+## Reliable execution
+
+**How does Temporal make applications reliable?**
+
+Temporal makes it easier for developers to build and operate reliable, scalable applications without sacrificing productivity.
+The design of the system ensures that, once started, an application's main function executes to completion, whether that takes minutes, hours, days, weeks, or even years.
+Temporal calls this _Durable Execution._
+
+## Code structure
+
+**How does Temporal simplify application code for software developers?**
+
+By shifting the burden of failure handling from the application to the platform, there is less code for application developers to write, test, and maintain.
+Temporal's programming model offers developers a way to express their business logic into coherent _Workflows_ that are much easier to develop than distributed code bases.
+
+Choose the SDK that best suits your preferred programming language and start writing your business logic.
+Integrate your favorite IDE, libraries, and tools into your development process.
+Temporal also supports polyglot and idiomatic programming - which enables developers to leverage the strengths of various programming languages and integrate Temporal into existing codebases.
+Developers achieve all of this without having to manage queues or complex state machines.
+
+## State visibility
+
+**How does Temporal make it easier to view the state of the application?**
+
+Temporal provides out-of-the-box tooling that enables developers to see the state of their applications whenever they need to.
+The Temporal CLI allows developers to manage, monitor, and debug Temporal applications effectively.
+The browser-based Web UI lets you quickly isolate, debug, and resolve production problems.
+
+---
+
+## Getting started with Temporal
+
+Temporal offers a range of SDKs to help you build Temporal applications.
+The SDKs are available for .NET, Go, Java, PHP, Python, Ruby, TypeScript.
+
+## Temporal Go SDK
+
+Get started with the [Temporal Go SDK](https://learn.temporal.io/getting_started/go).
+
+[](https://learn.temporal.io/getting_started/go)
+
+## Temporal Java SDK
+
+Get started with the [Temporal Java SDK](https://learn.temporal.io/getting_started/java).
+
+[](https://learn.temporal.io/getting_started/java)
+
+## Temporal PHP SDK
+
+Get started with the [Temporal PHP SDK](https://learn.temporal.io/getting_started/php).
+
+[](https://learn.temporal.io/getting_started/php)
+
+## Temporal Python SDK
+
+Get started with the [Temporal Python SDK](https://learn.temporal.io/getting_started/python).
+
+[](https://learn.temporal.io/getting_started/python)
+
+## Temporal TypeScript SDK
+
+Get started with the [Temporal TypeScript SDK](https://learn.temporal.io/getting_started/typescript).
+
+[](https://learn.temporal.io/getting_started/typescript)
+
+---
+
+## Quickstarts
+
+
+Choose your language to get started quickly.
+
+<QuickstartCards
+  items={[
+    { href: "/develop/go/set-up-your-local-go", title: "Go", description: "Install the Go SDK and run a Hello World Workflow in Go." },
+    { href: "/develop/java/set-up-your-local-java", title: "Java", description: "Install the Java SDK and run a Hello World Workflow in Java." },
+    { href: "/develop/ruby/set-up-local-ruby", title: "Ruby", description: "Install the Ruby SDK and run a Hello World Workflow in Ruby." },
+    { href: "/develop/python/set-up-your-local-python", title: "Python", description: "Install the Python SDK and run a Hello World Workflow in Python." },
+    { href: "/develop/typescript/set-up-your-local-typescript", title: "TypeScript", description: "Install the TypeScript SDK and run a Hello World Workflow in TypeScript." },
+    { href: "/develop/dotnet/set-up-your-local-dotnet", title: ".NET", description: "Install the .NET SDK and run a Hello World Workflow in C#." },
+  ]}
+/>
